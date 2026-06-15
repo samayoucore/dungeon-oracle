@@ -1,15 +1,10 @@
 // ============================================================================
-// Narrative engine: assembles room descriptions and resolves player actions.
-// Room descriptions stay template-driven (instant). Free-form player actions
-// are routed to the Groq Dungeon Master when an API key is configured, with a
-// graceful keyword-parser fallback. Russian output throughout.
+// Narrative engine: assembles room descriptions and parses player commands.
+// Pure functions (no React). Russian output; the command parser accepts both
+// Russian and English keywords.
 // ============================================================================
 
-import type { Biome, Character, Item, NarrativeEntry, Quest, Room } from '../../types';
-import { groqService, GroqError } from '../ai/groqService';
-import { messageHistory } from '../ai/messageHistory';
-import type { DMResponse } from '../ai/types';
-import type { GameContext } from '../ai/prompts';
+import type { Character, Item, Room } from '../../types';
 import {
   ENEMY_SPOTTED_TEMPLATES,
   FLOOR_DETAIL,
@@ -23,8 +18,6 @@ import {
 } from './templates';
 
 const LOW_HP_THRESHOLD = 0.3;
-/** How many recent log lines we feed the DM as short-term memory. */
-const RECENT_EVENT_COUNT = 5;
 
 /** Recognised command categories for the input parser. */
 export type CommandKind = 'look' | 'search' | 'rest' | 'inventory' | 'stats' | 'attack' | 'unknown';
@@ -78,10 +71,10 @@ export function restHpAmount(character: Character): number {
 }
 
 /**
- * Legacy keyword parser. Used as the offline fallback whenever the DM is
- * unavailable (no key, network error, or unexpected failure).
+ * Produce a narrative response to a player command.
+ * (Inventory is passed explicitly since it lives outside the Character.)
  */
-export function generateKeywordResponse(
+export function generateActionResponse(
   input: string,
   room: Room,
   character: Character,
@@ -110,88 +103,5 @@ export function generateKeywordResponse(
         : 'Здесь не с кем сражаться.';
     default:
       return pick(UNKNOWN_ACTION_RESPONSES);
-  }
-}
-
-/** Wrap a keyword reply as a mechanics-free DMResponse. */
-function keywordFallback(
-  input: string,
-  room: Room,
-  character: Character,
-  inventory: Item[],
-): DMResponse {
-  return {
-    narrative: generateKeywordResponse(input, room, character, inventory),
-    narrationOnly: true,
-  };
-}
-
-/** Collect the last few narration/action lines as short-term DM memory. */
-function recentEventsFrom(narrativeLog: NarrativeEntry[]): string[] {
-  return narrativeLog
-    .filter((entry) => entry.type === 'narration' || entry.type === 'action')
-    .slice(-RECENT_EVENT_COUNT)
-    .map((entry) => entry.text);
-}
-
-/**
- * Produce a DM response to a free-form player action. Always resolves to a
- * valid DMResponse — never throws — so the game keeps running on any failure.
- */
-export async function generateActionResponse(
-  input: string,
-  room: Room,
-  character: Character,
-  inventory: Item[],
-  quests: Quest[],
-  narrativeLog: NarrativeEntry[],
-  floor: number,
-  biome: Biome,
-): Promise<DMResponse> {
-  // No key configured -> stay fully offline on the keyword parser.
-  if (!groqService.isConfigured()) {
-    return keywordFallback(input, room, character, inventory);
-  }
-
-  const context: GameContext = {
-    character,
-    currentRoom: room,
-    inventory,
-    quests,
-    recentEvents: recentEventsFrom(narrativeLog),
-    floor,
-    biome,
-    combat: null,
-  };
-
-  try {
-    const result = await groqService.sendMessage(input, context, messageHistory.getHistory());
-    messageHistory.addUserAction(input);
-    messageHistory.addDMResponse(result);
-    return result;
-  } catch (error) {
-    if (error instanceof GroqError) {
-      switch (error.code) {
-        case 'RATE_LIMIT':
-          return {
-            narrative:
-              'Подземелье затаило дыхание... (Превышен лимит запросов, подождите немного)',
-            narrationOnly: true,
-          };
-        case 'INVALID_KEY':
-          return {
-            narrative: '⚠ Неверный ключ Groq API. Проверьте настройки.',
-            narrationOnly: true,
-          };
-        case 'NETWORK':
-          // Quietly degrade to the offline parser.
-          console.warn('Groq network error — falling back to keyword parser.');
-          return keywordFallback(input, room, character, inventory);
-        default:
-          return keywordFallback(input, room, character, inventory);
-      }
-    }
-    // Unknown error -> never break the game loop.
-    return keywordFallback(input, room, character, inventory);
   }
 }

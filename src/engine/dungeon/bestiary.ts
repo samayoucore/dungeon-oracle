@@ -101,19 +101,3 @@ export function createTroll(): Enemy {
     behavior: 'aggressive', biomes: ['cave', 'forest'], xp: 1800,
   });
 }
-
-/** Stable string ids the DM (and any data source) can spawn enemies by. */
-export const ENEMY_FACTORIES: Record<string, () => Enemy> = {
-  goblin: createGoblin,
-  skeleton: createSkeleton,
-  zombie: createZombie,
-  orc: createOrc,
-  dark_mage: createDarkMage,
-  troll: createTroll,
-};
-
-/** Spawn a fresh enemy by its bestiary id, or null for an unknown id. */
-export function createEnemyById(id: string): Enemy | null {
-  const factory = ENEMY_FACTORIES[id];
-  return factory ? factory() : null;
-}

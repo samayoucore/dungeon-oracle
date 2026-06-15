@@ -9,7 +9,6 @@ import type {
   DiceType,
   Enemy,
   Item,
-  Room,
   StatusEffect,
   StatusEffectType,
   TurnEntry,
@@ -162,7 +161,7 @@ export function playerDodge(_character: Character): TurnResult {
   };
 }
 
-export function playerFlee(character: Character, _room: Room): TurnResult {
+export function playerFlee(character: Character): TurnResult {
   const check = rollRaw(20) + character.modifiers.dex;
   if (check >= FLEE_DC) {
     return { narrative: 'Ты вырываешься и исчезаешь во тьме!', damageDealt: 0, damageTaken: 0, combatEnded: true, playerWon: false };

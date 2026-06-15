@@ -1,37 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Backpack, Map as MapIcon, ScrollText, Settings, User } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
-import { generateDungeon } from '../../engine/dungeon/generator';
-import { populateDungeon } from '../../engine/dungeon/populator';
-import { generateRoomDescription } from '../../engine/narrative/engine';
-import { initCombat, resolveLoot } from '../../engine/combat/system';
-import type { Biome } from '../../types';
+import { resolveLoot } from '../../engine/combat/system';
 import { useAutosave } from '../../hooks/useAutosave';
 import CharacterSheet from '../character/CharacterSheet';
 import InventoryPanel from '../character/InventoryPanel';
-import DungeonMap from '../game/DungeonMap';
+import LocationAtlas from '../game/LocationAtlas';
 import ExitPanel from '../game/ExitPanel';
-import RoomInfo from '../game/RoomInfo';
+import LocationInfo from '../game/LocationInfo';
 import NarrativeLog from '../game/NarrativeLog';
 import PlayerInput from '../game/PlayerInput';
 import GameMenu from '../game/GameMenu';
 import CombatPanel from '../game/CombatPanel';
 import LootPanel from '../game/LootPanel';
 import type { LootResult } from '../game/LootPanel';
+import SkillCheckModal from '../game/SkillCheckModal';
 import LevelUpScreen from './LevelUpScreen';
 import Toast, { useToasts } from '../ui/Toast';
 
-const START_NARRATIVE =
-  'Ты спускаешься в подземелье. Воздух холоден и сыр. Свет факелов пляшет по древним каменным стенам.';
-const START_BIOME: Biome = 'crypt';
-const BIOME_RU: Record<Biome, string> = {
-  crypt: 'Крипта',
-  forest: 'Лес',
-  castle: 'Замок',
-  cave: 'Пещера',
-  ruins: 'Руины',
-};
 const PANEL = 'min-h-0 flex-col overflow-hidden rounded-lg border border-surface-elevated bg-surface';
 
 type Tab = 'character' | 'log' | 'map' | 'bag';
@@ -61,14 +48,15 @@ function LeftTab({ active, onClick, label }: { active: boolean; onClick: () => v
   );
 }
 
-/** Main game screen: exploration, narrative, combat, inventory and progression. */
+/** Main game screen: AI-driven exploration, narrative, combat and progression. */
 export default function GameScreen() {
-  const dungeon = useGameStore((s) => s.dungeon);
   const character = useGameStore((s) => s.character);
+  const locations = useGameStore((s) => s.locations);
+  const currentLocationId = useGameStore((s) => s.currentLocationId);
+  const depth = useGameStore((s) => s.depth);
   const combat = useGameStore((s) => s.combat);
+  const isLoading = useGameStore((s) => s.isLoading);
   const pendingLevelUp = useGameStore((s) => s.pendingLevelUp);
-  const setDungeon = useGameStore((s) => s.setDungeon);
-  const addNarrative = useGameStore((s) => s.addNarrative);
   const clearLevelUp = useGameStore((s) => s.clearLevelUp);
 
   const [tab, setTab] = useState<Tab>('map');
@@ -80,43 +68,22 @@ export default function GameScreen() {
   const onSaved = useCallback((ok: boolean) => push(ok ? '💾 Сохранено' : '⚠ Ошибка сохранения', ok ? 'success' : 'error'), [push]);
   useAutosave(3, onSaved);
 
-  const currentRoomId = dungeon?.currentRoomId;
-
-  useEffect(() => {
-    if (dungeon) return;
-    const generated = populateDungeon(generateDungeon(1, START_BIOME));
-    setDungeon(generated);
-    addNarrative(START_NARRATIVE, 'narration');
-    const entrance = generated.rooms.find((r) => r.id === generated.currentRoomId);
-    if (entrance && character) addNarrative(generateRoomDescription(entrance, character), 'narration');
-  }, [dungeon, character, setDungeon, addNarrative]);
-
-  useEffect(() => {
-    const state = useGameStore.getState();
-    const dungeonNow = state.dungeon;
-    if (!dungeonNow || !state.character || state.combat?.active) return;
-    const room = dungeonNow.rooms.find((r) => r.id === dungeonNow.currentRoomId);
-    if (room && room.enemies.length > 0 && !room.isCleared) {
-      state.setCombat(initCombat(room.enemies, state.character));
-      state.addNarrative(`${room.enemies[0].name} преграждает путь — к оружию!`, 'combat');
-    }
-  }, [currentRoomId]);
-
   const handleVictory = useCallback(() => {
     const state = useGameStore.getState();
-    if (!state.combat || !state.dungeon) return;
+    if (!state.combat || !state.currentLocationId) return;
     const result = resolveLoot(state.combat.enemies);
     setLoot({ ...result, enemyCount: state.combat.enemies.length });
-    state.setDungeonRoomCleared(state.dungeon.currentRoomId);
+    state.markCombatResolved(state.currentLocationId);
     state.addNarrative('Враги повержены. Победа за тобой!', 'combat');
     state.endCombat();
   }, []);
 
-  if (!dungeon || !character) {
+  const currentLocation = currentLocationId ? locations[currentLocationId] : null;
+
+  if (!currentLocation || !character) {
     return <div className="flex min-h-screen items-center justify-center text-muted">Подземелье готовится…</div>;
   }
 
-  const currentRoom = dungeon.rooms.find((r) => r.id === dungeon.currentRoomId);
   const inCombat = !!combat?.active;
   const leftVisible = tab === 'character' || tab === 'bag';
 
@@ -124,7 +91,7 @@ export default function GameScreen() {
     <div className="flex h-[100dvh] flex-col">
       <header className="flex shrink-0 items-center justify-between border-b border-surface-elevated bg-surface px-4 py-2">
         <div className="text-sm text-muted">
-          Этаж {dungeon.floor} · <span className="text-parchment">{BIOME_RU[dungeon.biome]}</span>
+          Глубина {depth} · <span className="text-parchment">{currentLocation.name}</span>
         </div>
         <button type="button" onClick={() => setMenuOpen(true)} className="flex items-center gap-1 rounded-md border border-surface-elevated px-3 py-1 text-sm text-muted transition-colors hover:border-gold hover:text-gold">
           <Settings className="h-4 w-4" /> Меню
@@ -146,15 +113,13 @@ export default function GameScreen() {
         </section>
 
         <section className={`${tab === 'map' ? 'flex flex-1' : 'hidden'} lg:flex ${PANEL}`}>
-          <PanelHeader title="Карта подземелья" />
+          <PanelHeader title="Карта мира" />
           <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-3">
-            <DungeonMap dungeon={dungeon} />
-            <ExitPanel dungeon={dungeon} disabled={inCombat} />
-            {currentRoom && (
-              <div className="border-t border-surface-elevated pt-3">
-                <RoomInfo room={currentRoom} />
-              </div>
-            )}
+            <LocationAtlas />
+            <ExitPanel disabled={inCombat || isLoading} />
+            <div className="border-t border-surface-elevated pt-3">
+              <LocationInfo location={currentLocation} />
+            </div>
           </div>
         </section>
       </div>
@@ -168,6 +133,7 @@ export default function GameScreen() {
 
       {inCombat && <CombatPanel onVictory={handleVictory} />}
       {loot && <LootPanel loot={loot} onClose={() => setLoot(null)} />}
+      <SkillCheckModal />
       {pendingLevelUp && <LevelUpScreen info={pendingLevelUp} onClose={clearLevelUp} />}
       {menuOpen && <GameMenu onClose={() => setMenuOpen(false)} />}
       <Toast toasts={toasts} />

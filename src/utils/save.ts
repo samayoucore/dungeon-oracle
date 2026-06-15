@@ -5,8 +5,12 @@ const SAVE_KEY_PREFIX = 'dm_save_';
 /** Number of available save slots. */
 export const SAVE_SLOT_COUNT = 3;
 
-/** Current save schema version. Bump + migrate when {@link SaveSlot} changes. */
-export const SAVE_VERSION = 1;
+/**
+ * Current save schema version. Bumped to 2 in Phase 7: the pre-generated
+ * dungeon was replaced by the AI-driven `locations` world model, so older
+ * v1 saves are structurally incompatible and are ignored on load.
+ */
+export const SAVE_VERSION = 2;
 
 /** Emoji icon per class — used in save lists and character UI. */
 export const CLASS_ICONS: Record<CharacterClass, string> = {
@@ -67,7 +71,7 @@ export function saveGame(state: GameState, slotIndex: number): SaveSlot | null {
     characterName: state.character.name,
     characterClass: state.character.class,
     characterLevel: state.character.level,
-    floor: state.dungeon?.floor ?? 1,
+    floor: state.depth,
     savedAt: new Date().toISOString(),
     playtime: (previous?.playtime ?? 0) + minutesSince(sessionStart),
     gameState: state,

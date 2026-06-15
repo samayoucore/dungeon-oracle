@@ -2,6 +2,9 @@
 // Procedural dungeon generation via Binary Space Partitioning (BSP).
 // Pure, seeded, React-free. Produces rooms + corridor connections; the
 // populator (populator.ts) later assigns room types and contents.
+//
+// NOTE: unused since Phase 7, kept for reference. The world is now built on the
+// fly by the AI Dungeon Master (see src/engine/world + src/engine/ai).
 // ============================================================================
 
 import type { Biome, Dungeon, Rect, Room } from '../../types';

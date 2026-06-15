@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { Eraser } from 'lucide-react';
 import type { NarrativeType } from '../../types';
 import { useGameStore } from '../../store/gameStore';
@@ -7,23 +7,6 @@ import TypewriterText from '../ui/TypewriterText';
 interface NarrativeLogProps {
   /** Reports whether the latest entry is still being typed out. */
   onTypingChange?: (typing: boolean) => void;
-}
-
-/** Delay before the DM thinking indicator appears (avoids flicker on fast replies). */
-const THINKING_DELAY_MS = 300;
-
-/** Animated "Dungeon Master is thinking" indicator. */
-function ThinkingIndicator() {
-  return (
-    <div className="flex items-center gap-2 text-sm italic text-muted">
-      <span>Мастер Подземелья размышляет</span>
-      <span className="flex gap-1">
-        <span className="dm-thinking-dot" />
-        <span className="dm-thinking-dot" />
-        <span className="dm-thinking-dot" />
-      </span>
-    </div>
-  );
 }
 
 function entryClass(type: NarrativeType): string {
@@ -56,11 +39,9 @@ function prefix(type: NarrativeType): string {
 /** Scrollable event feed. Last entry animates; earlier ones render instantly. */
 export default function NarrativeLog({ onTypingChange }: NarrativeLogProps) {
   const entries = useGameStore((s) => s.narrativeLog);
-  const isLoading = useGameStore((s) => s.isLoading);
   const clearNarrative = useGameStore((s) => s.clearNarrative);
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
-  const [showThinking, setShowThinking] = useState(false);
 
   const handleScroll = () => {
     const el = scrollRef.current;
@@ -78,17 +59,6 @@ export default function NarrativeLog({ onTypingChange }: NarrativeLogProps) {
     scrollToBottom();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries.length]);
-
-  // Show the thinking indicator only if the DM takes longer than the delay.
-  // setState lives in the timeout / cleanup (never synchronously in the body).
-  useEffect(() => {
-    if (!isLoading) return;
-    const timer = window.setTimeout(() => setShowThinking(true), THINKING_DELAY_MS);
-    return () => {
-      window.clearTimeout(timer);
-      setShowThinking(false);
-    };
-  }, [isLoading]);
 
   const lastIndex = entries.length - 1;
 
@@ -124,7 +94,6 @@ export default function NarrativeLog({ onTypingChange }: NarrativeLogProps) {
             </p>
           </div>
         ))}
-        {showThinking && <ThinkingIndicator />}
       </div>
     </div>
   );

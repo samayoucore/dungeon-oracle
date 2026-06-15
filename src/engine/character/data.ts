@@ -48,6 +48,16 @@ export const STAT_ABBR: Record<StatKey, string> = {
   cha: 'ХАР',
 };
 
+/** Full Russian ability name per key (used in stat-change log lines). */
+export const STAT_LABELS_RU: Record<StatKey, string> = {
+  str: 'Сила',
+  dex: 'Ловкость',
+  con: 'Телосложение',
+  int: 'Интеллект',
+  wis: 'Мудрость',
+  cha: 'Харизма',
+};
+
 // ---------------------------------------------------------------------------
 // Point buy
 // ---------------------------------------------------------------------------

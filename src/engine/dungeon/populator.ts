@@ -1,6 +1,9 @@
 // ============================================================================
 // Assigns a type to every room and fills it with enemies, loot, traps, lore
 // and NPCs. Pure and seeded (derives its own RNG stream from dungeon.seed).
+//
+// NOTE: unused since Phase 7, kept for reference. The world is now built on the
+// fly by the AI Dungeon Master (see src/engine/world + src/engine/ai).
 // ============================================================================
 
 import type { Dungeon, Room, RoomType } from '../../types';

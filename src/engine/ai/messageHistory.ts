@@ -1,40 +1,46 @@
 // ============================================================================
-// In-memory chat transcript for the Dungeon Master. A module-level singleton
-// so it survives React re-renders. Trimmed to the most recent N exchanges to
-// keep token usage (and cost) bounded.
+// Conversational memory for the DM. An in-memory ring buffer of the recent
+// chat turns sent alongside the (stateful) system prompt. The authoritative
+// world memory lives in the game state / worldFlags — this only gives the
+// model short-term conversational continuity and is intentionally not saved.
 // ============================================================================
 
-import type { ChatMessage, DMResponse } from './types';
+import type { DMResponse } from './groqService';
 
-export class MessageHistory {
-  private history: ChatMessage[] = [];
-  private readonly maxPairs = 8;
-
-  /** Append a message, dropping the oldest pair once over the cap. */
-  add(role: ChatMessage['role'], content: string): void {
-    this.history.push({ role, content });
-    while (this.history.length > this.maxPairs * 2) {
-      this.history.shift();
-    }
-  }
-
-  /** A defensive copy of the transcript (callers must not mutate ours). */
-  getHistory(): ChatMessage[] {
-    return this.history.map((message) => ({ ...message }));
-  }
-
-  addUserAction(action: string): void {
-    this.add('user', action);
-  }
-
-  /** Store the DM reply as the assistant's JSON turn. */
-  addDMResponse(response: DMResponse): void {
-    this.add('assistant', JSON.stringify(response));
-  }
-
-  clear(): void {
-    this.history = [];
-  }
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
 }
 
-export const messageHistory = new MessageHistory();
+/** Keep only the last N turns so the prompt stays small and cheap. */
+const MAX_MESSAGES = 16;
+
+let history: ChatMessage[] = [];
+
+export const messageHistory = {
+  addUserAction(action: string): void {
+    history.push({ role: 'user', content: action });
+    trim();
+  },
+
+  /** Store the model's prose so it stays consistent with what it just said. */
+  addDMResponse(response: DMResponse): void {
+    const content = response.narrative?.trim();
+    if (content) history.push({ role: 'assistant', content });
+    trim();
+  },
+
+  getHistory(): ChatMessage[] {
+    return history.slice();
+  },
+
+  clear(): void {
+    history = [];
+  },
+};
+
+function trim(): void {
+  if (history.length > MAX_MESSAGES) {
+    history = history.slice(history.length - MAX_MESSAGES);
+  }
+}

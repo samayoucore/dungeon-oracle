@@ -164,9 +164,8 @@ export default function CombatPanel({ onVictory }: CombatPanelProps) {
   async function doFlee() {
     setBusy(true);
     const state = useGameStore.getState();
-    const room = state.dungeon?.rooms.find((r) => r.id === state.dungeon?.currentRoomId);
-    if (!state.character || !room) return setBusy(false);
-    const result = playerFlee(state.character, room);
+    if (!state.character) return setBusy(false);
+    const result = playerFlee(state.character);
     logBoth(result.narrative);
     await wait(500);
     if (result.combatEnded) return endCombat();

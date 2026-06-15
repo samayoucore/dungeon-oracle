@@ -252,6 +252,8 @@ export interface Enemy {
   biomes: Biome[];
   xpReward: number;
   statusEffects?: StatusEffect[];
+  /** Boss/elite flag (Phase 7): cannot be removed without real combat. */
+  mustFight?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,6 +426,77 @@ export interface GameStats {
 }
 
 // ---------------------------------------------------------------------------
+// World model (Phase 7 — AI-driven locations, NPCs, world memory)
+// ---------------------------------------------------------------------------
+
+/** Arbitrary persistent world facts the DM writes/reads as its memory. */
+export type WorldFlags = Record<string, string | number | boolean>;
+
+export type LocationType =
+  | 'dungeon_room'
+  | 'corridor'
+  | 'cave'
+  | 'crypt'
+  | 'library'
+  | 'shrine'
+  | 'town'
+  | 'building_interior'
+  | 'wilderness'
+  | 'boss_lair'
+  | 'other';
+
+export interface LocationConnection {
+  toLocationId: string;
+  /** Free-text label for the passage, e.g. "на север", "вниз по лестнице". */
+  label: string;
+}
+
+export interface Location {
+  id: string;
+  name: string;
+  type: LocationType;
+  description: string;
+  /** Free-form biome string for AI flavour. */
+  biome: string;
+  enemiesPresent: Enemy[];
+  itemsPresent: Item[];
+  npcIds: string[];
+  connections: LocationConnection[];
+  isSafeZone: boolean;
+  lore?: string;
+  visitCount: number;
+  /** gameStats.turnsPlayed when first discovered (sort key for the atlas). */
+  discoveredAt: number;
+}
+
+export type NPCAttitude = 'hostile' | 'unfriendly' | 'neutral' | 'friendly' | 'ally';
+
+export interface NPC {
+  id: string;
+  name: string;
+  role: string;
+  description: string;
+  icon: string;
+  /** Recent lines of dialogue (kept short). */
+  dialogues: string[];
+  shopInventory?: Item[];
+}
+
+export interface NPCMemory {
+  npcId: string;
+  /** Short notes on past interactions. */
+  interactions: string[];
+  attitude: NPCAttitude;
+}
+
+/** A pending out-of-combat skill check awaiting a d20 roll. */
+export interface SkillCheckRequest {
+  stat: keyof Stats;
+  dc: number;
+  description: string;
+}
+
+// ---------------------------------------------------------------------------
 // Aggregate game state & saves
 // ---------------------------------------------------------------------------
 
@@ -442,7 +515,6 @@ export interface LevelUpInfo {
 export interface GameState {
   screen: GameScreen;
   character: Character | null;
-  dungeon: Dungeon | null;
   combat: CombatState | null;
   inventory: Item[];
   equipped: EquipmentSlots;
@@ -454,6 +526,19 @@ export interface GameState {
   savedAt: string | null;
   /** Pending level-up shown in the LevelUpScreen modal, or null. */
   pendingLevelUp: LevelUpInfo | null;
+
+  // --- World model (Phase 7) — replaces the pre-generated dungeon. ---
+  locations: Record<string, Location>;
+  currentLocationId: string | null;
+  /** Abstract difficulty / how deep the story has descended. */
+  depth: number;
+  /** Location ids where combat actually ended in victory. */
+  resolvedCombatAt: Record<string, true>;
+  worldFlags: WorldFlags;
+  npcs: Record<string, NPC>;
+  npcMemory: Record<string, NPCMemory>;
+  /** Pending out-of-combat skill check shown in the SkillCheckModal, or null. */
+  pendingRoll: SkillCheckRequest | null;
 }
 
 export interface SaveSlot {
