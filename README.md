@@ -17,7 +17,7 @@
 
 <br/>
 
-[**Play Demo**](#getting-started) · [**Report Bug**](issues) · [**Request Feature**](issues)
+[**Play Demo**](#getting-started)
 
 </div>
 
