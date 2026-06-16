@@ -15,10 +15,6 @@
 
 *There is no pre-built dungeon. There is no script.<br/>The AI Dungeon Master invents every room, every face, and every consequence as you go — while the dice stay honest.*
 
-<br/>
-
-[**Play Demo**](#getting-started)
-
 </div>
 
 ---
