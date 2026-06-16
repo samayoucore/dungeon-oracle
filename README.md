@@ -126,16 +126,4 @@ src/
 
 ---
 
-## 🗺️ Roadmap
-
-- 🔮 A full spell system with spell slots and area effects
-- 🧩 Multi-floor descents with escalating difficulty and a final boss arc
-- 🛒 A working merchant economy (buy / sell / haggle)
-- ⚒️ Crafting and item enchanting
-- 🧑‍🤝‍🧑 Companions / party members with their own AI
-- ☁️ Optional cloud saves and run sharing via seed codes
-- 🏆 Achievements and a run-history meta-progression layer
-
----
-
 <p align="center"><em>Built as a portfolio project — clean architecture, strict TypeScript, zero external game services.</em></p>
