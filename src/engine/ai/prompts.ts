@@ -32,6 +32,8 @@ export interface GameContext {
   worldFlags: WorldFlags;
   npcs: Record<string, NPC>;
   npcMemory: Record<string, NPCMemory>;
+  /** Rolling AI summary of the story so far (Phase 8 context compression). */
+  storySummary: string;
 }
 
 const EFFECT_RU: Record<StatusEffectType, string> = {
@@ -92,8 +94,37 @@ function locationBlock(ctx: GameContext): string {
   ].filter((line) => line !== '').join('\n');
 }
 
+/**
+ * Limit the locations injected into the prompt: the current one, then its
+ * direct neighbours, then the most recently discovered — capped at maxCount.
+ * Distant/old locations stay in state (the atlas still shows them); if the AI
+ * "recreates" one, the dedupe layer reunites it.
+ */
+function getRelevantLocations(
+  locations: Record<string, Location>,
+  currentLocationId: string,
+  maxCount = 8,
+): Location[] {
+  const current = locations[currentLocationId];
+  if (!current) return Object.values(locations).slice(0, maxCount);
+  const directIds = new Set(current.connections.map((c) => c.toLocationId));
+  const prioritized = Object.values(locations)
+    .filter((l) => l.id !== currentLocationId)
+    .sort((a, b) => {
+      const aDirect = directIds.has(a.id) ? 1 : 0;
+      const bDirect = directIds.has(b.id) ? 1 : 0;
+      if (aDirect !== bDirect) return bDirect - aDirect;
+      return b.discoveredAt - a.discoveredAt;
+    });
+  return [current, ...prioritized.slice(0, maxCount - 1)];
+}
+
+function storyBlock(ctx: GameContext): string {
+  return ['━━ ИСТОРИЯ ДО ЭТОГО МОМЕНТА ━━', ctx.storySummary || 'Приключение только начинается.'].join('\n');
+}
+
 function worldBlock(ctx: GameContext): string {
-  const locations = Object.values(ctx.locations)
+  const locations = getRelevantLocations(ctx.locations, ctx.currentLocationId)
     .map((l) => `- [${l.id}] "${l.name}" (${l.type})`)
     .join('\n') || '(нет)';
 
@@ -103,7 +134,7 @@ function worldBlock(ctx: GameContext): string {
 
   const quests = ctx.quests.filter((q) => q.status === 'active').map((q) => `- ${q.title}`).join('\n') || 'нет';
 
-  const flags = Object.entries(ctx.worldFlags).map(([k, v]) => `- ${k}: ${v}`).join('\n') || 'нет';
+  const flags = Object.entries(ctx.worldFlags).slice(-15).map(([k, v]) => `- ${k}: ${v}`).join('\n') || 'нет';
 
   const events = ctx.recentEvents.length ? ctx.recentEvents.join('\n') : '(начало истории)';
 
@@ -184,6 +215,8 @@ export function buildSystemPrompt(ctx: GameContext): string {
     '',
     heroBlock(ctx),
     '',
+    storyBlock(ctx),
+    '',
     locationBlock(ctx),
     '',
     worldBlock(ctx),
@@ -192,6 +225,27 @@ export function buildSystemPrompt(ctx: GameContext): string {
     '',
     SCHEMA,
   ].join('\n');
+}
+
+/** Background prompt that asks the model to compress the story so far (plain text). */
+export function buildSummarizationPrompt(
+  storySummary: string,
+  worldFlags: WorldFlags,
+  recentNarrative: string[],
+): string {
+  const flags = Object.entries(worldFlags).map(([k, v]) => `${k}: ${v}`).join(', ') || 'нет';
+  return `Сожми историю приключения в краткую сводку (4-6 предложений на русском). Сохрани: ключевые решения игрока, важные обещания и отношения с персонажами, открытые угрозы, текущую цель пути. Опусти описания локаций и детали боёв — важен только сюжетный смысл.
+
+ПРЕДЫДУЩАЯ СВОДКА:
+${storySummary || '(начало приключения)'}
+
+НОВЫЕ СОБЫТИЯ С ТЕХ ПОР:
+${recentNarrative.join('\n')}
+
+ФАКТЫ МИРА:
+${flags}
+
+Ответь ТОЛЬКО новой сводкой текста, без вступлений, без кавычек, на русском.`;
 }
 
 /** The user turn carries only the action — full context is in the system prompt. */

@@ -1,4 +1,5 @@
 import type { CharacterClass, GameState, SaveSlot } from '../types';
+import { messageHistory } from '../engine/ai/messageHistory';
 
 const SAVE_KEY_PREFIX = 'dm_save_';
 
@@ -6,11 +7,11 @@ const SAVE_KEY_PREFIX = 'dm_save_';
 export const SAVE_SLOT_COUNT = 3;
 
 /**
- * Current save schema version. Bumped to 2 in Phase 7: the pre-generated
- * dungeon was replaced by the AI-driven `locations` world model, so older
- * v1 saves are structurally incompatible and are ignored on load.
+ * Current save schema version. v2 (Phase 7) introduced the AI `locations`
+ * world model; v3 (Phase 8) added queued level-ups, story summary and persisted
+ * AI message history. Older saves are structurally incompatible -> ignored.
  */
-export const SAVE_VERSION = 2;
+export const SAVE_VERSION = 3;
 
 /** Emoji icon per class — used in save lists and character UI. */
 export const CLASS_ICONS: Record<CharacterClass, string> = {
@@ -75,6 +76,7 @@ export function saveGame(state: GameState, slotIndex: number): SaveSlot | null {
     savedAt: new Date().toISOString(),
     playtime: (previous?.playtime ?? 0) + minutesSince(sessionStart),
     gameState: state,
+    aiMessageHistory: messageHistory.getHistory(),
   };
 
   try {

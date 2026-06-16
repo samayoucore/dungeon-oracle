@@ -16,7 +16,6 @@ import type {
   QuestObjectiveType,
   SkillCheckRequest,
   StatusEffect,
-  StatusEffectType,
   WorldFlags,
 } from '../types';
 import { equipmentSlotFor, recomputeAC } from '../engine/character/equipment';
@@ -30,13 +29,23 @@ import {
 } from '../engine/character/progression';
 import { abilityModifier, getIntroNarrative } from '../engine/character/creation';
 import { STAT_LABELS_RU } from '../engine/character/data';
-import { clamp, clampGeneratedEnemy, clampGeneratedItem } from '../engine/world/validation';
+import {
+  clamp,
+  clampGeneratedEnemy,
+  clampGeneratedItem,
+  clampGoldChange,
+  clampXpGain,
+} from '../engine/world/validation';
 import { createStartingLocation } from '../engine/world/bootstrap';
-import { initCombat } from '../engine/combat/system';
+import { findExistingLocationByName, findExistingNpcByName } from '../engine/world/dedupe';
+import { initCombat, tickWorldStatusEffects } from '../engine/combat/system';
+import type { StatusTickResult } from '../engine/combat/system';
+import { effectNameRu } from '../engine/combat/statusLabels';
 import { GroqError, groqService } from '../engine/ai/groqService';
 import type { DMResponse } from '../engine/ai/groqService';
 import { messageHistory } from '../engine/ai/messageHistory';
 import { hasApiKey } from '../engine/ai/settings';
+import { buildSummarizationPrompt } from '../engine/ai/prompts';
 import type { GameContext } from '../engine/ai/prompts';
 
 /** Crypto-backed id with a safe fallback for non-secure contexts. */
@@ -46,18 +55,6 @@ function createId(): string {
   }
   return `id-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
-
-/** Player-facing status-effect names with emoji (for narrative log lines). */
-const EFFECT_NAME_RU: Record<StatusEffectType, string> = {
-  poisoned: 'Отравлен 🐍',
-  stunned: 'Оглушён ⚡',
-  burning: 'Горит 🔥',
-  bleeding: 'Кровотечение 🩸',
-  frightened: 'Испуган 😨',
-  blinded: 'Ослеплён 🌫',
-  blessed: 'Благословлён ✨',
-  hasted: 'Ускорен 💨',
-};
 
 function createEquipment(): EquipmentSlots {
   return {
@@ -74,7 +71,7 @@ function createEquipment(): EquipmentSlots {
 }
 
 function createStats(): GameStats {
-  return { turnsPlayed: 0, enemiesKilled: 0, goldFound: 0, roomsExplored: 0 };
+  return { turnsPlayed: 0, enemiesKilled: 0, goldFound: 0, roomsExplored: 0, deathCount: 0 };
 }
 
 /** Fresh, character-less game state used on boot and reset. */
@@ -90,7 +87,7 @@ function createInitialState(): GameState {
     gameStats: createStats(),
     isLoading: false,
     savedAt: null,
-    pendingLevelUp: null,
+    pendingLevelUps: [],
     locations: {},
     currentLocationId: null,
     depth: 1,
@@ -99,6 +96,8 @@ function createInitialState(): GameState {
     npcs: {},
     npcMemory: {},
     pendingRoll: null,
+    storySummary: '',
+    summarizedUpToTurn: 0,
   };
 }
 
@@ -117,7 +116,7 @@ export interface GameActions {
   removeItem: (itemId: string) => void;
   equipItem: (item: Item) => void;
   unequipItem: (slot: EquipmentSlot) => void;
-  clearLevelUp: () => void;
+  consumePendingLevelUp: () => void;
   addQuest: (quest: Quest) => void;
   advanceObjective: (questId: string, objectiveId: string, amount?: number) => void;
   setCombat: (combat: CombatState) => void;
@@ -145,6 +144,10 @@ export interface GameActions {
   markCombatResolved: (locationId: string) => void;
   triggerSkillCheck: (req: SkillCheckRequest) => void;
   clearPendingRoll: () => void;
+
+  // --- Phase 8 ---
+  tickStatusEffectsForTurn: () => { messages: StatusTickResult['messages']; defeated: boolean };
+  setStorySummary: (text: string, atTurn: number) => void;
 
   // --- AI orchestration (Phase 7) ---
   submitPlayerAction: (action: string) => Promise<void>;
@@ -179,7 +182,23 @@ export const useGameStore = create<GameStore>()(
         worldFlags: s.worldFlags,
         npcs: s.npcs,
         npcMemory: s.npcMemory,
+        storySummary: s.storySummary,
       };
+    }
+
+    /** Every 15 turns, compress the story in the background (fire-and-forget). */
+    function maybeSummarize(): void {
+      const s = get();
+      const turns = s.gameStats.turnsPlayed;
+      if (turns <= 0 || turns % 15 !== 0 || turns <= s.summarizedUpToTurn) return;
+      const recentTexts = s.narrativeLog
+        .filter((e) => e.type === 'narration' || e.type === 'action' || e.type === 'system')
+        .slice(-30)
+        .map((e) => e.text);
+      const prompt = buildSummarizationPrompt(s.storySummary, s.worldFlags, recentTexts);
+      void groqService.summarizeStory(prompt).then((summary) => {
+        if (summary) get().setStorySummary(summary, turns);
+      });
     }
 
     /** Begin combat with the location's living enemies, if any (and not busy). */
@@ -226,26 +245,29 @@ export const useGameStore = create<GameStore>()(
       }
       if (response.statusEffects && (response.statusEffects.add?.length || response.statusEffects.remove?.length)) {
         a.applyStatusEffects(response.statusEffects.add ?? [], response.statusEffects.remove ?? []);
-        response.statusEffects.add?.forEach((effect) => a.addNarrative(`Состояние: ${EFFECT_NAME_RU[effect.type] ?? effect.type}`, 'system'));
+        response.statusEffects.add?.forEach((effect) => a.addNarrative(`Состояние: ${effectNameRu(effect.type)}`, 'system'));
       }
 
       // 4. Inventory / gold / xp.
       if (response.itemsConsumed?.length) a.consumeItemsByName(response.itemsConsumed);
       if (response.itemFound) {
-        const item = clampGeneratedItem(response.itemFound);
+        const item = clampGeneratedItem(response.itemFound, true);
         a.addItem(item);
         a.addNarrative(`Найдено: ${item.name}`, 'loot');
       }
       if (response.goldChange) {
-        a.addGold(response.goldChange);
-        a.addNarrative(
-          response.goldChange > 0 ? `+${response.goldChange} золота` : `Потеряно ${Math.abs(response.goldChange)} золота`,
-          'loot',
-        );
+        const gold = clampGoldChange(response.goldChange, get().depth);
+        if (gold !== 0) {
+          a.addGold(gold);
+          a.addNarrative(gold > 0 ? `+${gold} золота` : `Потеряно ${Math.abs(gold)} золота`, 'loot');
+        }
       }
       if (response.xpGained) {
-        a.addXp(response.xpGained);
-        a.addNarrative(`+${response.xpGained} опыта`, 'system');
+        const xp = clampXpGain(response.xpGained, get().character?.level ?? 1);
+        if (xp > 0) {
+          a.addXp(xp);
+          a.addNarrative(`+${xp} опыта`, 'system');
+        }
       }
 
       // 5. NPCs and quests.
@@ -275,26 +297,39 @@ export const useGameStore = create<GameStore>()(
           if (loc) loc.enemiesPresent.push(...ambush);
         });
       }
+      let combatJustStarted = false;
       if (forcedCombat || response.combatStart) {
         const loc = currentLocation();
         const living = loc ? loc.enemiesPresent.filter((e) => e.hp > 0) : [];
-        if (living.length > 0) startCombatIfEnemies(true);
-        else if (response.combatStart) console.warn('[DM] combatStart requested but no living enemies present');
+        if (living.length > 0) {
+          startCombatIfEnemies(true);
+          combatJustStarted = !!get().combat?.active;
+        } else if (response.combatStart) {
+          console.warn('[DM] combatStart requested but no living enemies present');
+        }
       }
 
-      // 9. Skill check interrupts the rest.
+      // 9. Skill check interrupts the rest — unless combat just started (combat wins).
       if (response.requiresRoll) {
-        a.triggerSkillCheck(response.requiresRoll);
-        return;
+        if (combatJustStarted) {
+          console.warn('[DM] both combatStart and requiresRoll returned — ignoring requiresRoll');
+        } else {
+          a.triggerSkillCheck(response.requiresRoll);
+          return;
+        }
       }
 
       // 10. Navigation, last.
       if (response.newLocation) {
-        a.createAndMoveToLocation(response.newLocation);
-        const loc = currentLocation();
-        if (loc) {
-          a.addNarrative(loc.description, 'narration');
-          startCombatIfEnemies(true);
+        const before = get().currentLocationId;
+        const newId = a.createAndMoveToLocation(response.newLocation);
+        // If the AI "recreated" the CURRENT location, treat it as an update, not a move.
+        if (newId !== before) {
+          const loc = currentLocation();
+          if (loc) {
+            a.addNarrative(loc.description, 'narration');
+            startCombatIfEnemies(true);
+          }
         }
       } else if (response.moveToLocation) {
         const moved = a.moveToExistingLocation(response.moveToLocation);
@@ -394,7 +429,7 @@ export const useGameStore = create<GameStore>()(
               text: `✦ Новый уровень! Теперь ты ${newLevel} уровня.${features[0] ? ` ${features[0]}` : ''}`,
               timestamp: Date.now(),
             });
-            state.pendingLevelUp = {
+            state.pendingLevelUps.push({
               oldLevel,
               newLevel,
               hpGained,
@@ -403,7 +438,7 @@ export const useGameStore = create<GameStore>()(
               oldProf,
               newProf: c.proficiencyBonus,
               features,
-            };
+            });
           }
         }),
 
@@ -451,9 +486,9 @@ export const useGameStore = create<GameStore>()(
           character.ac = recomputeAC(character, state.equipped);
         }),
 
-      clearLevelUp: () =>
+      consumePendingLevelUp: () =>
         set((state) => {
-          state.pendingLevelUp = null;
+          state.pendingLevelUps.shift();
         }),
 
       addQuest: (quest) =>
@@ -597,7 +632,17 @@ export const useGameStore = create<GameStore>()(
 
       introduceNpc: (npc) =>
         set((state) => {
-          const shopInventory = npc.shopInventory?.map(clampGeneratedItem);
+          const existing = findExistingNpcByName(state.npcs, npc.name);
+          if (existing && existing.id !== npc.id) {
+            // Known character re-introduced under a different id — merge in place.
+            existing.description = npc.description || existing.description;
+            existing.role = npc.role || existing.role;
+            if (npc.shopInventory) existing.shopInventory = npc.shopInventory.map((i) => clampGeneratedItem(i, false));
+            const here = state.currentLocationId ? state.locations[state.currentLocationId] : null;
+            if (here && !here.npcIds.includes(existing.id)) here.npcIds.push(existing.id);
+            return;
+          }
+          const shopInventory = npc.shopInventory?.map((i) => clampGeneratedItem(i, false));
           state.npcs[npc.id] = {
             id: npc.id,
             name: npc.name,
@@ -653,10 +698,32 @@ export const useGameStore = create<GameStore>()(
 
       createAndMoveToLocation: (spec) => {
         const id = createId();
+        let resultId = id;
         set((state) => {
           const current = state.currentLocationId ? state.locations[state.currentLocationId] : null;
+          const existing = findExistingLocationByName(state.locations, spec.name);
+
+          if (existing && current && existing.id === current.id) {
+            // AI re-described the CURRENT place as "new" — just refresh the description.
+            current.description = spec.description || current.description;
+            resultId = current.id;
+            return;
+          }
+          if (existing && current && existing.id !== current.id) {
+            // AI re-created a known place — reuse it, link it and move there.
+            existing.visitCount += 1;
+            if (!current.connections.some((c) => c.toLocationId === existing.id)) {
+              current.connections.push({ toLocationId: existing.id, label: spec.connectionLabel });
+              existing.connections.push({ toLocationId: current.id, label: 'назад' });
+            }
+            state.currentLocationId = existing.id;
+            state.depth = clamp(state.depth + (spec.depthDelta ?? 0), 1, 20);
+            resultId = existing.id;
+            return;
+          }
+
           const enemies = (spec.enemies ?? []).map((e) => clampGeneratedEnemy(e, state.depth));
-          const items = (spec.items ?? []).map(clampGeneratedItem);
+          const items = (spec.items ?? []).map((i) => clampGeneratedItem(i, true));
           const newLoc: Location = {
             id,
             name: spec.name,
@@ -678,8 +745,9 @@ export const useGameStore = create<GameStore>()(
           state.locations[id] = newLoc;
           state.currentLocationId = id;
           state.depth = clamp(state.depth + (spec.depthDelta ?? 0), 1, 20);
+          resultId = id;
         });
-        return id;
+        return resultId;
       },
 
       moveToExistingLocation: (spec) => {
@@ -727,6 +795,33 @@ export const useGameStore = create<GameStore>()(
         }),
 
       // -------------------------------------------------------------------
+      // Phase 8
+      // -------------------------------------------------------------------
+
+      tickStatusEffectsForTurn: () => {
+        let out: { messages: StatusTickResult['messages']; defeated: boolean } = { messages: [], defeated: false };
+        set((state) => {
+          const c = state.character;
+          if (!c || c.statusEffects.length === 0) return;
+          const tick = tickWorldStatusEffects(c);
+          c.hp = tick.hp;
+          c.statusEffects = tick.statusEffects;
+          out = { messages: tick.messages, defeated: tick.defeated };
+          if (tick.defeated) {
+            state.screen = 'game-over';
+            state.gameStats.deathCount += 1;
+          }
+        });
+        return out;
+      },
+
+      setStorySummary: (text, atTurn) =>
+        set((state) => {
+          state.storySummary = text;
+          state.summarizedUpToTurn = atTurn;
+        }),
+
+      // -------------------------------------------------------------------
       // AI orchestration (Phase 7)
       // -------------------------------------------------------------------
 
@@ -736,12 +831,18 @@ export const useGameStore = create<GameStore>()(
         if (s.isLoading || s.combat?.active || s.pendingRoll) return;
         if (!trimmed || !s.character || !s.currentLocationId) return;
 
-        s.addNarrative(`> ${trimmed}`, 'action');
         if (!hasApiKey()) {
+          s.addNarrative(`> ${trimmed}`, 'action');
           s.addNarrative('⚠ Укажи ключ Groq в Настройках, чтобы Мастер Подземелий ожил.', 'system');
           return;
         }
 
+        // Step 0: out-of-combat status tick (poison/bleed/burn + wear-off).
+        const tick = s.tickStatusEffectsForTurn();
+        tick.messages.forEach((m) => s.addNarrative(m.text, m.type));
+        if (tick.defeated) return; // game-over already set; don't take the turn.
+
+        s.addNarrative(`> ${trimmed}`, 'action');
         s.setLoading(true);
         s.incrementTurns();
         try {
@@ -751,6 +852,7 @@ export const useGameStore = create<GameStore>()(
           messageHistory.addUserAction(trimmed);
           messageHistory.addDMResponse(response);
           await applyDMResponse(response);
+          maybeSummarize();
         } catch (err) {
           handleAiError(err);
         } finally {
@@ -761,6 +863,12 @@ export const useGameStore = create<GameStore>()(
       resolveSkillCheck: async (total, success) => {
         const pending = get().pendingRoll;
         if (!pending) return;
+        // Race guard: if a fight started before the roll resolved, combat wins.
+        if (get().combat?.active) {
+          console.warn('[DM] combat active before roll outcome resolved — skipping AI roll outcome');
+          get().clearPendingRoll();
+          return;
+        }
         get().clearPendingRoll();
         const ctx = buildContext();
         if (!ctx) return;

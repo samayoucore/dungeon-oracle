@@ -4,6 +4,14 @@ import { useGameStore } from '../../store/gameStore';
 import { isSoundEnabled, setSoundEnabled } from '../../hooks/useSound';
 import { soundEngine } from '../../engine/audio/soundEngine';
 import { AVAILABLE_MODELS, getApiKey, getModel, setApiKey, setModel } from '../../engine/ai/settings';
+import { getDifficulty } from '../../engine/world/validation';
+import type { Difficulty } from '../../engine/world/validation';
+
+const DIFFICULTIES: { id: Difficulty; label: string; hint: string }[] = [
+  { id: 'easy', label: 'Лёгко', hint: 'Враги слабее, найденная добыча ценнее.' },
+  { id: 'normal', label: 'Нормально', hint: 'Сбалансированное приключение.' },
+  { id: 'hardcore', label: 'Хардкор', hint: 'Враги крепче. Автосохранение отключено.' },
+];
 
 export default function SettingsScreen() {
   const setScreen = useGameStore((s) => s.setScreen);
@@ -12,6 +20,16 @@ export default function SettingsScreen() {
   const [apiKey, setApiKeyState] = useState(getApiKey());
   const [model, setModelState] = useState(getModel());
   const [showKey, setShowKey] = useState(false);
+  const [difficulty, setDifficultyState] = useState<Difficulty>(getDifficulty());
+
+  const onDifficultyChange = (d: Difficulty) => {
+    setDifficultyState(d);
+    try {
+      localStorage.setItem('dm_difficulty', d);
+    } catch {
+      /* ignore storage failures */
+    }
+  };
 
   const toggleSound = () => {
     const next = !sound;
@@ -47,6 +65,25 @@ export default function SettingsScreen() {
             <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-dungeon transition-all ${sound ? 'left-[22px]' : 'left-0.5'}`} />
           </span>
         </button>
+
+        <div className="rounded-lg border border-surface-elevated bg-surface p-4">
+          <h2 className="mb-2 font-serif text-lg text-gold">Сложность</h2>
+          <div className="flex gap-2">
+            {DIFFICULTIES.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => onDifficultyChange(d.id)}
+                className={`flex-1 rounded-md border px-2 py-2 text-sm transition-colors ${
+                  difficulty === d.id ? 'border-gold bg-gold/10 text-gold' : 'border-surface-elevated text-muted hover:border-gold/50'
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+          <p className="mt-2 text-xs text-muted">{DIFFICULTIES.find((d) => d.id === difficulty)?.hint}</p>
+        </div>
 
         <div className="rounded-lg border border-surface-elevated bg-surface p-4">
           <h2 className="mb-1 font-serif text-lg text-gold">Мастер Подземелий (ИИ)</h2>

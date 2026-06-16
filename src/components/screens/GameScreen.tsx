@@ -1,8 +1,9 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import { Backpack, Map as MapIcon, ScrollText, Settings, User } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { resolveLoot } from '../../engine/combat/system';
+import { getDifficulty } from '../../engine/world/validation';
 import { useAutosave } from '../../hooks/useAutosave';
 import CharacterSheet from '../character/CharacterSheet';
 import InventoryPanel from '../character/InventoryPanel';
@@ -56,8 +57,8 @@ export default function GameScreen() {
   const depth = useGameStore((s) => s.depth);
   const combat = useGameStore((s) => s.combat);
   const isLoading = useGameStore((s) => s.isLoading);
-  const pendingLevelUp = useGameStore((s) => s.pendingLevelUp);
-  const clearLevelUp = useGameStore((s) => s.clearLevelUp);
+  const pendingLevelUps = useGameStore((s) => s.pendingLevelUps);
+  const consumePendingLevelUp = useGameStore((s) => s.consumePendingLevelUp);
 
   const [tab, setTab] = useState<Tab>('map');
   const [isTyping, setIsTyping] = useState(false);
@@ -67,6 +68,18 @@ export default function GameScreen() {
 
   const onSaved = useCallback((ok: boolean) => push(ok ? '💾 Сохранено' : '⚠ Ошибка сохранения', ok ? 'success' : 'error'), [push]);
   useAutosave(3, onSaved);
+
+  // One-time per-session warning when playing Hardcore (autosave disabled).
+  useEffect(() => {
+    if (getDifficulty() !== 'hardcore') return;
+    try {
+      if (sessionStorage.getItem('dm_hardcore_notice')) return;
+      sessionStorage.setItem('dm_hardcore_notice', '1');
+    } catch {
+      /* ignore storage failures */
+    }
+    push('⚠ Хардкор: автосохранение отключено', 'error', 4000);
+  }, [push]);
 
   const handleVictory = useCallback(() => {
     const state = useGameStore.getState();
@@ -134,7 +147,9 @@ export default function GameScreen() {
       {inCombat && <CombatPanel onVictory={handleVictory} />}
       {loot && <LootPanel loot={loot} onClose={() => setLoot(null)} />}
       <SkillCheckModal />
-      {pendingLevelUp && <LevelUpScreen info={pendingLevelUp} onClose={clearLevelUp} />}
+      {pendingLevelUps.length > 0 && (
+        <LevelUpScreen key={pendingLevelUps[0].newLevel} info={pendingLevelUps[0]} onClose={consumePendingLevelUp} />
+      )}
       {menuOpen && <GameMenu onClose={() => setMenuOpen(false)} />}
       <Toast toasts={toasts} />
     </div>

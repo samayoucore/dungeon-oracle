@@ -9,6 +9,7 @@ import type {
   DiceType,
   Enemy,
   Item,
+  NarrativeType,
   StatusEffect,
   StatusEffectType,
   TurnEntry,
@@ -17,6 +18,7 @@ import { checkHit, checkHitMode, rollDamage, rollInitiative, rollRaw, roll } fro
 import type { AttackRoll, RollMode } from './dice';
 import { createRng, randomSeed, randInt, chance } from '../random';
 import { rollLoot } from '../dungeon/lootTables';
+import { effectNameRu } from './statusLabels';
 
 export interface TurnResult {
   narrative: string;
@@ -307,6 +309,63 @@ export function applyStatusEffect(
 ): StatusEffect[] {
   if (effects.some((e) => e.type === type)) return effects;
   return [...effects, { type, duration, magnitude }];
+}
+
+// ---------------------------------------------------------------------------
+// Out-of-combat ("world") status tick
+// ---------------------------------------------------------------------------
+
+export interface StatusTickResult {
+  hp: number;
+  statusEffects: StatusEffect[];
+  messages: { text: string; type: NarrativeType }[];
+  defeated: boolean;
+}
+
+/** Per-turn chance an effect wears off while exploring. stunned never lingers. */
+const WORLD_WEAR_OFF_CHANCE: Record<StatusEffectType, number> = {
+  poisoned: 0.25,
+  burning: 0.3,
+  bleeding: 0.2,
+  frightened: 0.3,
+  blinded: 0.25,
+  blessed: 0.2,
+  hasted: 0.25,
+  stunned: 1.0,
+};
+
+const DOT_EFFECTS: StatusEffectType[] = ['poisoned', 'burning', 'bleeding'];
+
+const DOT_MESSAGES: Record<string, (dmg: number) => string> = {
+  poisoned: (dmg) => `Яд разъедает тебя изнутри — ${dmg} урона.`,
+  burning: (dmg) => `Пламя обжигает кожу — ${dmg} урона.`,
+  bleeding: (dmg) => `Открытая рана кровоточит — ${dmg} урона.`,
+};
+
+/**
+ * Apply status effects for one exploration turn: damage-over-time ticks plus a
+ * per-effect chance to wear off. Distinct from {@link tickStatusEffects} (which
+ * runs each combat round and has turn-skip semantics) — do not merge them.
+ */
+export function tickWorldStatusEffects(character: Character): StatusTickResult {
+  let hp = character.hp;
+  const messages: StatusTickResult['messages'] = [];
+  const remaining: StatusEffect[] = [];
+
+  for (const effect of character.statusEffects) {
+    if (DOT_EFFECTS.includes(effect.type)) {
+      const dmg = roll('1d4');
+      hp = Math.max(0, hp - dmg);
+      messages.push({ text: DOT_MESSAGES[effect.type](dmg), type: 'combat' });
+    }
+    if (Math.random() < WORLD_WEAR_OFF_CHANCE[effect.type]) {
+      messages.push({ text: `${effectNameRu(effect.type)}: эффект закончился.`, type: 'system' });
+    } else {
+      remaining.push(effect);
+    }
+  }
+
+  return { hp, statusEffects: remaining, messages, defeated: hp <= 0 };
 }
 
 // ---------------------------------------------------------------------------

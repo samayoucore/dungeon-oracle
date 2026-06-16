@@ -212,4 +212,31 @@ export const groqService = {
     }
     return response;
   },
+
+  /**
+   * Background story compression (Phase 8). Plain text, no JSON schema. Must
+   * never throw or surface errors — it's fire-and-forget; returns null on any
+   * failure (no key, network, bad response).
+   */
+  async summarizeStory(prompt: string): Promise<string | null> {
+    const apiKey = getApiKey();
+    if (!apiKey) return null;
+    try {
+      const res = await fetch(GROQ_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: getModel(),
+          max_tokens: 220,
+          temperature: 0.5,
+          messages: [{ role: 'user', content: prompt }],
+        }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as GroqCompletion;
+      return data.choices?.[0]?.message?.content?.trim() ?? null;
+    } catch {
+      return null;
+    }
+  },
 };

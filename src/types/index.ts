@@ -423,6 +423,8 @@ export interface GameStats {
   enemiesKilled: number;
   goldFound: number;
   roomsExplored: number;
+  /** Times the hero has died (currently counted on out-of-combat status deaths). */
+  deathCount: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,6 +498,12 @@ export interface SkillCheckRequest {
   description: string;
 }
 
+/** A single turn in the DM conversation (persisted with saves since Phase 8). */
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 // ---------------------------------------------------------------------------
 // Aggregate game state & saves
 // ---------------------------------------------------------------------------
@@ -524,8 +532,8 @@ export interface GameState {
   isLoading: boolean;
   /** ISO timestamp of the last successful autosave, or null. */
   savedAt: string | null;
-  /** Pending level-up shown in the LevelUpScreen modal, or null. */
-  pendingLevelUp: LevelUpInfo | null;
+  /** Queue of pending level-ups, shown one-by-one in the LevelUpScreen modal. */
+  pendingLevelUps: LevelUpInfo[];
 
   // --- World model (Phase 7) — replaces the pre-generated dungeon. ---
   locations: Record<string, Location>;
@@ -539,6 +547,12 @@ export interface GameState {
   npcMemory: Record<string, NPCMemory>;
   /** Pending out-of-combat skill check shown in the SkillCheckModal, or null. */
   pendingRoll: SkillCheckRequest | null;
+
+  // --- Context compression (Phase 8) ---
+  /** Rolling AI-written summary of the story so far (keeps the prompt small). */
+  storySummary: string;
+  /** turnsPlayed value at which storySummary was last regenerated. */
+  summarizedUpToTurn: number;
 }
 
 export interface SaveSlot {
@@ -554,4 +568,6 @@ export interface SaveSlot {
   /** Total play time in minutes. */
   playtime: number;
   gameState: GameState;
+  /** DM short-term conversational memory (Phase 8). */
+  aiMessageHistory: ChatMessage[];
 }

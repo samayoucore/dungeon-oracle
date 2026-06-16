@@ -11,6 +11,7 @@ import {
 } from '../../../utils/save';
 import type { SaveSlot } from '../../../types';
 import { CLASS_BY_ID } from '../../../engine/character/data';
+import { messageHistory } from '../../../engine/ai/messageHistory';
 
 interface SaveSlotListProps {
   onBack: () => void;
@@ -88,7 +89,10 @@ export default function SaveSlotList({ onBack }: SaveSlotListProps) {
             key={index}
             index={index}
             slot={slot}
-            onLoad={(picked) => loadState(picked.gameState)}
+            onLoad={(picked) => {
+              loadState(picked.gameState);
+              messageHistory.loadHistory(picked.aiMessageHistory ?? []);
+            }}
             onDelete={handleDelete}
           />
         ))}

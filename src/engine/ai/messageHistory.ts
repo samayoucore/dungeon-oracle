@@ -1,16 +1,14 @@
 // ============================================================================
 // Conversational memory for the DM. An in-memory ring buffer of the recent
 // chat turns sent alongside the (stateful) system prompt. The authoritative
-// world memory lives in the game state / worldFlags — this only gives the
-// model short-term conversational continuity and is intentionally not saved.
+// world memory lives in the game state / worldFlags; this gives the model
+// short-term conversational continuity and IS persisted with saves (Phase 8).
 // ============================================================================
 
+import type { ChatMessage } from '../../types';
 import type { DMResponse } from './groqService';
 
-export interface ChatMessage {
-  role: 'user' | 'assistant';
-  content: string;
-}
+export type { ChatMessage } from '../../types';
 
 /** Keep only the last N turns so the prompt stays small and cheap. */
 const MAX_MESSAGES = 16;
@@ -32,6 +30,11 @@ export const messageHistory = {
 
   getHistory(): ChatMessage[] {
     return history.slice();
+  },
+
+  /** Restore history from a loaded save (Phase 8). */
+  loadHistory(loaded: ChatMessage[]): void {
+    history = Array.isArray(loaded) ? loaded.slice(-MAX_MESSAGES) : [];
   },
 
   clear(): void {

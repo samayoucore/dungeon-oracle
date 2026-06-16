@@ -96,6 +96,38 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+// ---------------------------------------------------------------------------
+// Difficulty (Phase 8) — read from localStorage, chosen in Settings.
+// ---------------------------------------------------------------------------
+
+export type Difficulty = 'easy' | 'normal' | 'hardcore';
+
+export function getDifficulty(): Difficulty {
+  try {
+    const value = typeof localStorage !== 'undefined' ? localStorage.getItem('dm_difficulty') : null;
+    return value === 'easy' || value === 'hardcore' ? value : 'normal';
+  } catch {
+    return 'normal';
+  }
+}
+
+const ENEMY_HP_MULT: Record<Difficulty, number> = { easy: 0.8, normal: 1.0, hardcore: 1.3 };
+const LOOT_VALUE_MULT: Record<Difficulty, number> = { easy: 1.1, normal: 1.0, hardcore: 1.0 };
+
+// ---------------------------------------------------------------------------
+// Reward clamps (Phase 8) — keep AI-granted gold/xp level-appropriate.
+// ---------------------------------------------------------------------------
+
+export function clampGoldChange(value: number, depth: number): number {
+  const max = clamp(depth * 15 + 10, 10, 500);
+  return clamp(value, -max, max);
+}
+
+export function clampXpGain(value: number, level: number): number {
+  const max = clamp(level * 30 + 20, 20, 400);
+  return clamp(value, 0, max);
+}
+
 /** Snap an arbitrary number of sides to the nearest legal die. */
 function nearestDie(sides: number): DiceType {
   const allowed = [4, 6, 8, 10, 12, 20, 100];
@@ -174,7 +206,7 @@ export function clampGeneratedEnemy(raw: RawEnemy, depth: number): Enemy {
   const d = clamp(depth, 1, 20);
   const cr = clamp(raw.cr ?? d * 0.5, d * 0.4, d * 1.5 + 0.5);
   const baseHp = Math.round(cr * 12 + 5);
-  const hp = Math.round(clamp(raw.hp ?? baseHp, baseHp * 0.6, baseHp * 1.6));
+  const hp = Math.round(clamp(raw.hp ?? baseHp, baseHp * 0.6, baseHp * 1.6) * ENEMY_HP_MULT[getDifficulty()]);
   const ac = Math.round(clamp(raw.ac ?? 12, 8, 20));
 
   const nameLower = (raw.name ?? '').toLowerCase();
@@ -237,12 +269,17 @@ function clampArmor(raw: RawArmorStats | undefined, type: ItemType): ArmorStats 
   return armor;
 }
 
-/** Build a safe Item from arbitrary AI output. */
-export function clampGeneratedItem(raw: RawItem): Item {
+/**
+ * Build a safe Item from arbitrary AI output. Pass `isLoot` for items the
+ * player finds/loots (applies the difficulty loot-value multiplier); leave it
+ * false for shop stock, starting gear and equipment.
+ */
+export function clampGeneratedItem(raw: RawItem, isLoot = false): Item {
   const type: ItemType = raw.type && ITEM_TYPES.has(raw.type) ? raw.type : 'misc';
   const rarity: ItemRarity = raw.rarity && RARITIES.has(raw.rarity) ? raw.rarity : 'common';
   const [lo, hi] = RARITY_VALUE_RANGE[rarity];
-  const value = Math.round(clamp(raw.value ?? lo, lo, hi));
+  const baseValue = Math.round(clamp(raw.value ?? lo, lo, hi));
+  const value = isLoot ? Math.round(baseValue * LOOT_VALUE_MULT[getDifficulty()]) : baseValue;
 
   return {
     id: crypto.randomUUID(),
