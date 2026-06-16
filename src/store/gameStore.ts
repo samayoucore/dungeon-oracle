@@ -149,6 +149,11 @@ export interface GameActions {
   tickStatusEffectsForTurn: () => { messages: StatusTickResult['messages']; defeated: boolean };
   setStorySummary: (text: string, atTurn: number) => void;
 
+  // --- Phase 9 ---
+  setNpcAttitude: (npcId: string, attitude: 'hostile' | 'neutral' | 'friendly') => void;
+  logNpcInteraction: (npcId: string, summary: string) => void;
+  processShopPurchase: (npcId: string, itemName: string, price: number) => boolean;
+
   // --- AI orchestration (Phase 7) ---
   submitPlayerAction: (action: string) => Promise<void>;
   resolveSkillCheck: (total: number, success: boolean) => Promise<void>;
@@ -224,7 +229,7 @@ export const useGameStore = create<GameStore>()(
     }
 
     /** Apply a DMResponse to game state in the Phase-7 order. */
-    async function applyDMResponse(response: DMResponse): Promise<void> {
+    async function applyDMResponse(response: DMResponse, playerInput?: string): Promise<void> {
       const a = get();
       a.addNarrative(response.narrative, 'narration');
 
@@ -250,16 +255,26 @@ export const useGameStore = create<GameStore>()(
 
       // 4. Inventory / gold / xp.
       if (response.itemsConsumed?.length) a.consumeItemsByName(response.itemsConsumed);
-      if (response.itemFound) {
-        const item = clampGeneratedItem(response.itemFound, true);
-        a.addItem(item);
-        a.addNarrative(`Найдено: ${item.name}`, 'loot');
-      }
-      if (response.goldChange) {
-        const gold = clampGoldChange(response.goldChange, get().depth);
-        if (gold !== 0) {
-          a.addGold(gold);
-          a.addNarrative(gold > 0 ? `+${gold} золота` : `Потеряно ${Math.abs(gold)} золота`, 'loot');
+      if (response.shopPurchase) {
+        // Explicit purchase path — takes priority over itemFound/goldChange.
+        const { npcId, itemName, price } = response.shopPurchase;
+        const ok = a.processShopPurchase(npcId, itemName, price);
+        if (ok) a.addNarrative(`Куплено: ${itemName} за ${price}з`, 'loot');
+        if (response.itemFound || response.goldChange) {
+          console.warn('[DM] shopPurchase present — ignoring itemFound/goldChange in the same response');
+        }
+      } else {
+        if (response.itemFound) {
+          const item = clampGeneratedItem(response.itemFound, true);
+          a.addItem(item);
+          a.addNarrative(`Найдено: ${item.name}`, 'loot');
+        }
+        if (response.goldChange) {
+          const gold = clampGoldChange(response.goldChange, get().depth);
+          if (gold !== 0) {
+            a.addGold(gold);
+            a.addNarrative(gold > 0 ? `+${gold} золота` : `Потеряно ${Math.abs(gold)} золота`, 'loot');
+          }
         }
       }
       if (response.xpGained) {
@@ -272,6 +287,11 @@ export const useGameStore = create<GameStore>()(
 
       // 5. NPCs and quests.
       if (response.npcIntroduced) a.introduceNpc(response.npcIntroduced);
+      if (response.attitudeChange) a.setNpcAttitude(response.attitudeChange.npcId, response.attitudeChange.attitude);
+      const involvedNpcId = response.attitudeChange?.npcId ?? response.npcIntroduced?.id;
+      if (involvedNpcId && playerInput && playerInput.length < 200) {
+        a.logNpcInteraction(involvedNpcId, playerInput);
+      }
       if (response.newQuest) a.addDynamicQuest(response.newQuest);
       if (response.questUpdate) a.advanceObjective(response.questUpdate.questId, response.questUpdate.objectiveId);
 
@@ -499,9 +519,15 @@ export const useGameStore = create<GameStore>()(
       advanceObjective: (questId, objectiveId, amount = 1) =>
         set((state) => {
           const quest = state.quests.find((q) => q.id === questId);
-          if (!quest) return;
+          if (!quest) {
+            console.warn('[DM] questUpdate: unknown questId', questId);
+            return;
+          }
           const objective = quest.objectives.find((o) => o.id === objectiveId);
-          if (!objective) return;
+          if (!objective) {
+            console.warn('[DM] questUpdate: unknown objectiveId', objectiveId);
+            return;
+          }
           objective.current = Math.min(objective.target, objective.current + amount);
           objective.isComplete = objective.current >= objective.target;
           if (quest.objectives.every((o) => o.isComplete)) {
@@ -822,6 +848,45 @@ export const useGameStore = create<GameStore>()(
         }),
 
       // -------------------------------------------------------------------
+      // Phase 9
+      // -------------------------------------------------------------------
+
+      setNpcAttitude: (npcId, attitude) =>
+        set((state) => {
+          const mem = state.npcMemory[npcId];
+          if (!mem) {
+            console.warn('[DM] attitudeChange: unknown npcId', npcId);
+            return;
+          }
+          mem.attitude = attitude;
+        }),
+
+      logNpcInteraction: (npcId, summary) =>
+        set((state) => {
+          const mem = state.npcMemory[npcId];
+          if (!mem) return;
+          mem.interactions.push(summary);
+          if (mem.interactions.length > 5) mem.interactions.shift();
+        }),
+
+      processShopPurchase: (npcId, itemName, price) => {
+        let success = false;
+        set((state) => {
+          if (!state.character || state.character.gold < price) return;
+          const npc = state.npcs[npcId];
+          const shopItem = npc?.shopInventory?.find((i) => i.name.toLowerCase() === itemName.toLowerCase());
+          if (!shopItem) {
+            console.warn('[DM] shopPurchase: item not found', itemName);
+            return;
+          }
+          state.character.gold -= price;
+          state.inventory.push({ ...shopItem, id: createId() });
+          success = true;
+        });
+        return success;
+      },
+
+      // -------------------------------------------------------------------
       // AI orchestration (Phase 7)
       // -------------------------------------------------------------------
 
@@ -851,7 +916,7 @@ export const useGameStore = create<GameStore>()(
           const response = await groqService.sendMessage(trimmed, ctx, messageHistory.getHistory());
           messageHistory.addUserAction(trimmed);
           messageHistory.addDMResponse(response);
-          await applyDMResponse(response);
+          await applyDMResponse(response, trimmed);
           maybeSummarize();
         } catch (err) {
           handleAiError(err);

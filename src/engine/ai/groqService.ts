@@ -63,6 +63,8 @@ export interface DMResponse {
     icon: string;
     shopInventory?: RawItem[];
   } | null;
+  attitudeChange?: { npcId: string; attitude: 'hostile' | 'neutral' | 'friendly' } | null;
+  shopPurchase?: { npcId: string; itemName: string; price: number } | null;
   locationLore?: string | null;
 
   // --- Current-location enemies ---
@@ -104,6 +106,10 @@ export class GroqError extends Error {
 // ---------------------------------------------------------------------------
 
 const GROQ_URL = 'https://api.groq.com/openai/v1/chat/completions';
+
+/** Lightweight model for background summarization — keeps the main model's
+ *  daily quota free; text compression doesn't need the big model. */
+const SUMMARY_MODEL = 'llama-3.1-8b-instant';
 
 interface GroqChoice {
   message?: { content?: string };
@@ -226,7 +232,7 @@ export const groqService = {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: getModel(),
+          model: SUMMARY_MODEL,
           max_tokens: 220,
           temperature: 0.5,
           messages: [{ role: 'user', content: prompt }],

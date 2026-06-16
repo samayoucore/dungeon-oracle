@@ -123,16 +123,46 @@ function storyBlock(ctx: GameContext): string {
   return ['━━ ИСТОРИЯ ДО ЭТОГО МОМЕНТА ━━', ctx.storySummary || 'Приключение только начинается.'].join('\n');
 }
 
+/** Active quests with their exact ids so the model can target questUpdate. */
+function formatQuestsForPrompt(quests: Quest[]): string {
+  const active = quests.filter((q) => q.status === 'active');
+  if (active.length === 0) return 'нет';
+  return active
+    .map((q) => {
+      const objectives = q.objectives
+        .map((o) => {
+          const progress = o.target > 1 ? ` (${o.current}/${o.target})` : '';
+          const status = o.isComplete ? '✓' : '○';
+          return `    ${status} [obj_id: ${o.id}] ${o.description}${progress}`;
+        })
+        .join('\n');
+      return `  - "${q.title}" [quest_id: ${q.id}]\n${objectives}`;
+    })
+    .join('\n\n');
+}
+
 function worldBlock(ctx: GameContext): string {
   const locations = getRelevantLocations(ctx.locations, ctx.currentLocationId)
     .map((l) => `- [${l.id}] "${l.name}" (${l.type})`)
     .join('\n') || '(нет)';
 
   const npcs = Object.values(ctx.npcs)
-    .map((npc) => `- ${npc.name} (${npc.role}), отношение: ${ctx.npcMemory[npc.id]?.attitude ?? 'neutral'}`)
+    .map((npc) => {
+      const mem = ctx.npcMemory[npc.id];
+      const interactions = mem?.interactions ?? [];
+      const last = interactions[interactions.length - 1];
+      const shop = npc.shopInventory?.length
+        ? `\n    Товары на продажу: ${npc.shopInventory.map((i) => `${i.name} (${i.value}з)`).join(', ')}`
+        : '';
+      return (
+        `- ${npc.name} (${npc.role}) [npc_id: ${npc.id}], отношение: ${mem?.attitude ?? 'neutral'}` +
+        (last ? `, последнее: "${last}"` : '') +
+        shop
+      );
+    })
     .join('\n') || 'пока никого не встречено';
 
-  const quests = ctx.quests.filter((q) => q.status === 'active').map((q) => `- ${q.title}`).join('\n') || 'нет';
+  const quests = formatQuestsForPrompt(ctx.quests);
 
   const flags = Object.entries(ctx.worldFlags).slice(-15).map(([k, v]) => `- ${k}: ${v}`).join('\n') || 'нет';
 
@@ -147,6 +177,7 @@ function worldBlock(ctx: GameContext): string {
     '',
     '━━ АКТИВНЫЕ КВЕСТЫ ━━',
     quests,
+    'Для прогресса квестов используй questUpdate с ТОЧНЫМИ quest_id и obj_id из скобок выше — никогда не выдумывай свои id.',
     '',
     '━━ ФАКТЫ МИРА ━━',
     flags,
@@ -162,13 +193,13 @@ const RULES = `━━ ПРАВИЛА ━━
 1. Всегда возвращай ОДИН валидный JSON-объект по схеме ниже. Без markdown, без текста вне JSON.
 2. "narrative" обязателен — 1–3 атмосферных предложения от второго лица.
 3. Краткость. Тон тёмного фэнтези: мрачно, атмосферно, изредка чёрный юмор.
-4. ПЕРСОНАЖИ: новых именованных NPC представляй через npcIntroduced (уникальный snake_case id). Уже известных не вводи повторно — продолжай взаимодействие. Изменение отношения отражай через worldFlags ("{npcId}_attitude": "friendly").
+4. ПЕРСОНАЖИ: новых именованных NPC представляй через npcIntroduced (уникальный snake_case id). Уже известных не вводи повторно — продолжай взаимодействие, используя npc_id из списка «ИЗВЕСТНЫЕ ПЕРСОНАЖИ». Если действие игрока меняет отношение персонажа — используй attitudeChange с этим npc_id (НЕ worldFlags). Суть встречи коротко отрази в narrative.
 5. ФАКТЫ МИРА: записывай через worldFlags любые важные постоянные детали (имена, обещания, секреты, слабости врагов) — это твоя память между сообщениями.
 6. ПРЕДМЕТЫ: новые находки — itemFound. Если игрок ИСПОЛЬЗУЕТ, ОТДАЁТ или ТРАТИТ предмет из инвентаря — itemsConsumed с точным названием.
 7. УРОН/ЛЕЧЕНИЕ ВНЕ БОЯ: ловушки, падения, отдых, неизвестные зелья — hpChange (отрицательное = урон). НЕ для боевых действий — там урон считает код.
 8. СТАТУС-ЭФФЕКТЫ: яд из газа, благословение, проклятие — через statusEffects.add / .remove. Допустимые типы: poisoned, stunned, burning, bleeding, frightened, blinded, blessed, hasted.
 9. ПОСТОЯННЫЕ ИЗМЕНЕНИЯ ХАРАКТЕРИСТИК (statChanges): очень редко, только для значимых сюжетных моментов (проклятие алтаря, благословение). delta обычно ±1, максимум ±2. Обязательно укажи reason.
-10. КВЕСТЫ: если нарратив создаёт квестовый крючок — формализуй через newQuest. Прогресс — questUpdate.
+10. КВЕСТЫ: если нарратив создаёт квестовый крючок — формализуй через newQuest. Прогресс существующего квеста — ТОЛЬКО через questUpdate с questId/objectiveId, скопированными буквально из секции «АКТИВНЫЕ КВЕСТЫ» (поля quest_id и obj_id). Если нужного квеста или цели там нет — не вызывай questUpdate, лучше пропустить механику, чем выдумать несуществующий id.
 11. ПАМЯТЬ ЛОКАЦИИ: постоянные детали о текущем месте (надпись, секрет) — locationLore.
 12. ПЕРЕМЕЩЕНИЕ:
     - Новое место → newLocation. depthDelta: 1 при спуске глубже (враги сильнее), 0 при горизонтальном перемещении (соседняя комната, город), -1 при подъёме к поверхности.
@@ -176,6 +207,7 @@ const RULES = `━━ ПРАВИЛА ━━
     - Локация меняется НА МЕСТЕ (стены рушатся, комната затапливается) → currentLocationUpdate.
 13. БЕЗОПАСНЫЕ ЗОНЫ: если локация безопасная и игрок отдыхает — полное восстановление HP (hpChange) и снятие статус-эффектов (statusEffects.remove).
 14. ГОРОДА И ТОРГОВЦЫ: создавая локацию type "town", населяй через npcIntroduced. Если NPC торговец — заполни shopInventory (2–5 предметов с разумными ценами).
+14a. ТОРГОВЛЯ: если игрок покупает товар у NPC, у которого в списке персонажей есть «Товары на продажу» — верни ИМЕННО этот товар (то же название, та же цена) через itemFound + отрицательный goldChange, ЛИБО используй явное поле shopPurchase { npcId, itemName, price }. Если золота не хватает — откажи в narrative, не выдавай предмет. Если игрок продаёт предмет — itemsConsumed для его предмета и положительный goldChange (обычно 30-50% от ценности).
 15. БОЙ: комбатанты — это враги текущей локации. combatStart — сигнал «бой начинается сейчас». Внезапную угрозу из ниоткуда (засада, предательство) передавай через combatStart.ambushEnemies.
 16. КЛЮЧЕВЫЕ ПРОТИВНИКИ (mustFight): НИКОГДА не объявляй такого врага побеждённым, обманутым или устранённым без combatStart — как бы умно ни действовал игрок. Если игрок заявляет финальный удар без боя — опиши это как ПОПЫТКУ, которая проваливается в последний миг, и враг переходит в атаку (combatStart). Добавь драматизма твисту.
 17. ПРОВЕРКИ НАВЫКОВ: для действий с неопределённым исходом (взлом, прыжок, убеждение, чтение рун) — requiresRoll с подходящим статом и DC (10 = легко, 15 = средне, 20 = сложно). Затем ты получишь результат броска и опишешь последствия. НЕ запрашивай requiresRoll повторно для того же действия.
@@ -199,6 +231,8 @@ const SCHEMA = `СХЕМА JSON (все поля, кроме narrative, опци
   "questUpdate": { "questId": "string", "objectiveId": "string" },
   "worldFlags": { "ключ": "значение" },
   "npcIntroduced": { "id": "snake_case", "name": "string", "role": "string", "description": "string", "icon": "🧙", "shopInventory": [ { "name": "string", "type": "potion", "rarity": "common", "value": 50 } ] },
+  "attitudeChange": { "npcId": "snake_case", "attitude": "hostile|neutral|friendly" },
+  "shopPurchase": { "npcId": "snake_case", "itemName": "точное название товара из списка персонажа", "price": 50 },
   "locationLore": "string",
   "clearLocationEnemies": true,
   "newLocation": { "name": "string", "type": "town|cave|crypt|corridor|library|shrine|building_interior|wilderness|boss_lair|dungeon_room|other", "description": "string", "biome": "string", "connectionLabel": "на север", "isSafeZone": false, "depthDelta": 1, "enemies": [], "items": [] },

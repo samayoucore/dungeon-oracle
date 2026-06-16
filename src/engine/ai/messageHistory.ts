@@ -10,8 +10,9 @@ import type { DMResponse } from './groqService';
 
 export type { ChatMessage } from '../../types';
 
-/** Keep only the last N turns so the prompt stays small and cheap. */
-const MAX_MESSAGES = 16;
+/** Keep only the last N messages (~4 user/assistant pairs). The DMResponse
+ *  schema grew in Phases 7-8, so fewer pairs now carry the same token weight. */
+const MAX_MESSAGES = 8;
 
 let history: ChatMessage[] = [];
 
