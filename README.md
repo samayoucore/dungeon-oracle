@@ -1,104 +1,127 @@
-# ⚔️ Dungeon Master
+<div align="center">
 
-> A procedural browser RPG built **without AI APIs** — every dungeon, story beat and battle is driven by pure algorithms, templates and weighted random tables, exactly like a tabletop game master would run them.
+# ⚔️ Dungeon Oracle
 
-![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
-![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)
-![Vite](https://img.shields.io/badge/Vite-8-646CFF?logo=vite&logoColor=white)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind-v4-38BDF8?logo=tailwindcss&logoColor=white)
-![Zustand](https://img.shields.io/badge/Zustand-state-2D3748)
-![License](https://img.shields.io/badge/license-MIT-c9a227)
+### A browser RPG where the AI Dungeon Master doesn't just describe the world — it runs it
 
----
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white)](https://react.dev)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://typescriptlang.org)
+[![Vite](https://img.shields.io/badge/Vite-5.2-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
+[![Zustand](https://img.shields.io/badge/Zustand-4.5-FF6B35?style=flat-square)](https://zustand-demo.pmnd.rs)
+[![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B-F55036?style=flat-square)](https://groq.com)
 
-## 🎮 Demo
+<br/>
 
-> 📹 *Recording coming soon.* In the meantime, **clone and run locally to play** (see [Getting Started](#-getting-started)). The whole game runs offline in the browser — no backend, no API keys.
+*There is no pre-built dungeon. There is no script.<br/>The AI Dungeon Master invents every room, every face, and every consequence as you go — while the dice stay honest.*
 
----
+<br/>
 
-## ✨ Features
+[**Play Demo**](#getting-started) · [**Report Bug**](issues) · [**Request Feature**](issues)
 
-- 🏰 **Procedural dungeon generation** — Binary Space Partitioning carves 12–18 connected rooms per floor onto an 80×60 grid.
-- 🗺️ **Canvas mini-map with fog of war** — rooms reveal as you explore, with a pulsing "you are here" marker.
-- 📜 **Procedural narrative engine** — hundreds of templates + contextual variables produce unique room descriptions every time. No two runs read alike.
-- ⌨️ **Natural-language commands** — type `look`, `search`, `rest`, `inventory`… or use quick-action buttons. Output is printed with a typewriter effect.
-- 🎲 **D&D 5e-inspired combat** — initiative, advantage/disadvantage, criticals & fumbles, per-enemy AI (aggressive, berserker, tactical, coward, support), status effects and an animated dice roller.
-- 🧙 **Full character creation** — race, class, point-buy stats, background, derived HP/AC and starting gear.
-- 📈 **Leveling & progression** — XP thresholds, hit-die HP gains, class features and a celebratory level-up screen.
-- 🎒 **Inventory & equipment** — equip weapons/armor/shields into slots, recompute AC, manage encumbrance.
-- 🔊 **Procedural sound** — every effect is synthesised at runtime with the Web Audio API. Zero audio files.
-- 💾 **3 save slots + autosave** — full game state persists to `localStorage`; autosaves every few turns.
-- 📱 **Responsive** — three-column desktop layout collapses to a tabbed mobile interface.
+</div>
 
 ---
 
-## 🏗️ Architecture
+## ✨ What this actually does
 
-The project deliberately separates the **game engine** from **React**:
+Most "AI RPG" demos are a chat window with a fantasy system prompt. Dungeon Oracle goes further: the AI's response is a structured object, and the frontend treats every field as a real game mechanic — not flavor text layered on top of a static game.
 
-```
-src/engine/    ← pure TypeScript: no React, no DOM, no store. Deterministic & testable.
-src/components ← presentation only. Reads the store, calls engine functions, renders UI.
-src/store/     ← a single Zustand + Immer store holding the whole GameState.
-```
+- **The AI controls the world, not just the words.** Every player action can move you to a new location, introduce a named NPC, start a quest, change your gold, scar you with a permanent stat change, or poison you for the next several turns — and all of it is reflected immediately in your character sheet, inventory, and map.
+- **No pre-generated dungeon.** There's no fixed layout waiting to be unlocked. The AI invents each location's name and description as the story reaches it, and remembers it well enough to send you back to the *same* tavern, not a copy of it.
+- **Dice still decide fights.** The Dungeon Master narrates the encounter and decides when it starts — but initiative, attack rolls, critical hits, and damage are resolved by deterministic code. No amount of clever phrasing lets the AI simply declare a fight won.
+- **Boss fights can't be talked away.** Key enemies are flagged as must-fight. If you try to narrate your way past one without actually fighting, the story twists on you — the clever plan fails at the last second, and real combat begins anyway.
+- **The world remembers, within limits.** NPC relationships, world facts, shop inventories, and quest progress persist across the session via explicit IDs the AI is given — not vibes. A rolling story summary keeps long sessions coherent without the prompt growing forever.
+- **Generated content is sanity-checked.** Enemies and items the AI invents are clamped to sane ranges for the current depth, so a "CR 30 ancient dragon" can't show up two rooms into the game.
+- **Works with or without an API key.** No key configured → a template-based narrative engine still handles room descriptions and basic commands. Add a free Groq key → the full reactive Dungeon Master takes over.
 
-Keeping `src/engine/` framework-free means the dungeon generator, combat math and narrative system can be reasoned about (and unit-tested) in isolation — UI bugs can never corrupt game logic, and the logic has no idea a UI exists.
+---
 
-**The narrative engine** is the heart of the "DM-without-AI" illusion. Each description is a template like
-`"You enter a {size} corridor. {lighting}. {floor_detail}."` whose placeholders are filled from weighted
-dictionaries chosen by context (room type, enemies present, the hero's wounds). A few hundred templates and
-variables combine into thousands of variations, so descriptions feel hand-written without a single API call.
+## 🎮 How to Play
 
-**The BSP dungeon generator** starts with the full map rectangle and recursively splits it into smaller
-sub-spaces (40–60% cuts for variety). Each leaf becomes a room; sibling sub-trees are joined with
-L-shaped corridors, guaranteeing a fully connected floor. A separate *populator* then assigns each room a
-type and fills it with enemies, loot, traps and lore from weighted tables.
+1. **Create your hero** — pick a race, class, name, and distribute ability points via point-buy.
+2. **Say what you do, in your own words** — *"Осматриваю руны на стене"*, *"Иду на свет в конце коридора"*, *"Предлагаю торговцу свой кинжал в обмен на зелье"*. The Dungeon Master reacts to the literal thing you typed, not a multiple-choice menu.
+3. **Watch the world respond** — new locations appear on the map, NPCs remember you, quests pick up objectives, your inventory and gold update live.
+4. **Fight when it's time** — combat hands off to a proper turn-based D&D-style system: roll initiative, attack, dodge, use items, watch the dice.
+5. **Survive, descend, return** — go back to a safe location to rest and trade, then head deeper for tougher fights and better loot.
+
+> **Tip:** add a free Groq API key in Settings to unlock the living Dungeon Master. Get one at [console.groq.com](https://console.groq.com) — no credit card required.
 
 ---
 
 ## 🚀 Getting Started
 
 ```bash
-git clone <your-repo-url>
-cd dnd
+git clone https://github.com/your-username/dungeon-oracle.git
+cd dungeon-oracle
 npm install
 npm run dev
 ```
 
-Then open the printed local URL (default `http://localhost:5173`).
+Open [http://localhost:5173](http://localhost:5173) and begin.
 
-```bash
-npm run build    # type-check + production bundle
-npm run preview  # serve the production build
-```
+The game is fully playable without an API key — a keyword-based fallback handles basic actions (`look`, `search`, `rest`, `inventory`). Add a Groq key in Settings for the complete AI-driven experience.
 
 ---
 
-## 🎲 How to Play
+## 🏗️ How It's Built
 
-1. **Create your hero** — pick a race and class, spend 27 point-buy points, choose a background.
-2. **Explore** — read each room's description, then pick an exit to move deeper into the dungeon.
-3. **Act** — type commands (`search`, `rest`, `look`…) or tap the quick-action buttons.
-4. **Fight** — entering a room with enemies starts combat. Attack, dodge, flee, or quaff a potion; the dice decide your fate.
-5. **Grow** — defeat foes for XP and loot, level up to unlock class features, and equip what you find.
+The project draws a hard line between two kinds of truth, and that line is the whole design:
 
-> 💡 Tip: press **Space** (or click) to skip the typewriter animation.
+| Decided by deterministic code | Decided by the AI Dungeon Master |
+|---|---|
+| Dice rolls, attack and damage math | Where you are, and what a place looks like |
+| Turn order and initiative | NPCs — their names, roles, attitudes |
+| Whether an attack hits or misses | Quests and their objectives |
+| HP loss during combat | Loot, gold, and XP outside combat |
+| Character creation math (HP/AC/modifiers) | Status effects from non-combat causes |
+| Leveling thresholds and stat growth | Shop inventories and prices |
+| Sanity limits on AI-generated content | The tone and voice of every response |
+
+Combat outcomes are never narrated into existence — they're computed. Everything else is the AI's to shape.
+
+### The response is a contract, not a chat message
+
+Every player action sends the full game state to Groq and gets back structured JSON, not prose. A trimmed example of what the model actually returns:
+
+```json
+{
+  "narrative": "Торговец прищуривается и кивает на ряд бутылочек на прилавке.",
+  "npcIntroduced": {
+    "id": "boris_merchant",
+    "name": "Борис",
+    "role": "торговец",
+    "shopInventory": [{ "name": "Зелье лечения", "value": 25 }]
+  },
+  "requiresRoll": { "stat": "cha", "dc": 12, "description": "Сбить цену" }
+}
+```
+
+The frontend walks every field in a fixed order — world state first, then HP and status effects, then inventory and gold, then NPCs and quests, then combat, then navigation — and applies each one as an actual store update. If a skill check is pending, the dice roll happens client-side and gets sent back to the AI as a follow-up message so it can narrate the consequence correctly.
+
+### A graph, not a grid
+
+Locations aren't tiles on a pre-built map — they're nodes the AI creates on demand, connected by labeled paths ("through a hidden crack in the wall," "down a spiral staircase"). When the AI tries to send you to "the merchant's stall" a second time, a name-similarity check resolves it to the *same* location and NPC instead of quietly duplicating them. A handful of guardrails keep this honest: enemy and item stats generated by the AI are clamped against the current depth, must-fight enemies can't be cleared without combat actually resolving, and a periodically-regenerated story summary keeps the model's context from growing without bound over a long session.
+
+### Two narrators, one voice
+
+Room *arrival* text can come from a fast, local template engine — hundreds of patterns and contextual variables that need no network call. Room *reaction* — anything the player actually does — goes to the AI. The seam between them is invisible in play, but it means the game never feels frozen waiting on a network request just to describe a doorway.
 
 ---
 
 ## 🛠️ Tech Stack
 
-| Technology | Why it's used |
+| Technology | Purpose |
 |---|---|
-| **React 19 + TypeScript** | Component UI with strict, fully-typed game models |
-| **Vite 8** | Instant dev server and fast production builds |
-| **Tailwind CSS v4** | Utility-first styling with a custom dark fantasy theme (CSS-first `@theme`) |
-| **Zustand + Immer** | Minimal global store with ergonomic immutable updates |
-| **Framer Motion** | Screen and combat transitions, modals, level-up burst |
-| **Canvas API** | The dungeon mini-map with fog of war |
-| **Web Audio API** | Fully procedural sound effects — no asset files |
-| **lucide-react** | Crisp UI icons |
+| React 18 + TypeScript | UI layer, strict typing throughout |
+| Vite | Dev server and bundler |
+| Tailwind CSS | Dark fantasy utility-first styling |
+| Zustand + Immer | Single source of truth for all game state |
+| Framer Motion | Dice rolls, transitions, combat feedback |
+| Canvas API | Legacy dungeon-grid renderer (superseded by the location atlas) |
+| Groq API (Llama 3.3 70B) | The Dungeon Master itself |
+| Web Audio API | Every sound effect, generated — zero audio files |
+| localStorage | 3-slot saves, including AI conversation memory |
 
 ---
 
@@ -106,24 +129,32 @@ npm run preview  # serve the production build
 
 ```
 src/
-├── engine/                 # Framework-free game logic (pure, testable)
-│   ├── random.ts           #   Seeded RNG (mulberry32) + weighted helpers
-│   ├── character/          #   Creation, progression, equipment, data tables
-│   ├── dungeon/            #   BSP generator, populator, bestiary, loot tables
-│   ├── narrative/          #   Template dictionaries + text-assembly engine
-│   ├── combat/             #   Dice math + the turn-based combat system
-│   └── audio/              #   Procedural Web Audio sound engine
+├── engine/                 # Pure TypeScript — no React, no store imports
+│   ├── combat/             # Dice, turn resolution, status effects, enemy AI
+│   ├── character/          # Creation math, leveling, class data
+│   ├── narrative/           # Template engine for fast, AI-free room intros
+│   ├── world/                # Content validation/clamping, NPC & location dedup, world bootstrap
+│   ├── ai/                  # Groq client, system prompt builder, message history
+│   └── audio/               # Procedural sound generation
+│
+├── store/                  # Zustand store — every mutation the AI or player can trigger
 ├── components/
-│   ├── screens/            #   Title, creation wizard, game, game over, level up
-│   ├── character/          #   Character sheet, inventory, equipment
-│   ├── game/               #   Map, combat panel, narrative log, player input
-│   └── ui/                 #   Typewriter text, toasts
-├── hooks/                  # useAutosave, useSound
-├── store/                  # The Zustand game store
-├── utils/                  # localStorage save/load
-└── types/                  # All shared domain types
+│   ├── screens/             # Title, Character Creation, Game, Game Over, Level Up
+│   ├── game/                 # Narrative log, combat panel, location atlas, player input
+│   ├── character/            # Character sheet, inventory & equipment
+│   └── ui/                   # Typewriter text, toasts, dice roller
+├── types/                   # Every interface in one place
+└── utils/ · hooks/            # Save/load, autosave, sound toggle
 ```
 
 ---
 
-<p align="center"><em>Built as a portfolio project — clean architecture, strict TypeScript, zero external game services.</em></p>
+## 🤔 Design Decisions Worth Knowing
+
+A few things look like limitations at first glance but are deliberate:
+
+Free-text input during an active fight goes to the combat system, not the AI — you choose Attack, Dodge, Flee, or an item from a fixed set of buttons. Letting the AI adjudicate combat flavor mid-fight would blur the one line the whole architecture depends on, so it's saved for outside combat instead.
+
+The AI can occasionally misname or slightly reword something it created earlier (a merchant becomes "the merchant" becomes "Boris the merchant"). The dedup logic catches close matches, but it's a similarity heuristic, not a guarantee — a few odd duplicate locations after very long sessions are a known, accepted edge case rather than a bug being chased.
+
+---
