@@ -202,6 +202,8 @@ export interface Item {
   description: string;
   /** Emoji or lucide-react icon name. */
   icon: string;
+  /** Stack size for consumables (Phase 10). Absent = 1; always read as `?? 1`. */
+  quantity?: number;
   weaponStats?: WeaponStats;
   armorStats?: ArmorStats;
   potionEffect?: PotionEffect;
@@ -425,6 +427,8 @@ export interface GameStats {
   roomsExplored: number;
   /** Times the hero has died (currently counted on out-of-combat status deaths). */
   deathCount: number;
+  /** Quests brought to the 'completed' state (Phase 10). */
+  questsCompleted: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,6 +500,8 @@ export interface SkillCheckRequest {
   stat: keyof Stats;
   dc: number;
   description: string;
+  /** Damage applied ONLY on failure (Phase 10), clamped like any narrative HP. */
+  onFailHpChange?: number;
 }
 
 /** A single turn in the DM conversation (persisted with saves since Phase 8). */

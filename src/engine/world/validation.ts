@@ -128,6 +128,18 @@ export function clampXpGain(value: number, level: number): number {
   return clamp(value, 0, max);
 }
 
+/**
+ * Clamp out-of-combat HP changes (Phase 10). Direct narrative damage is capped
+ * at ~15% of maxHp (min 3) so "you fall and take -500" can't one-shot the hero —
+ * serious harm must go through requiresRoll/onFailHpChange. Healing is likewise
+ * capped at 50% of maxHp per beat (full heals only in safe-zone rests).
+ */
+export function clampNarrativeHp(value: number, maxHp: number): number {
+  if (value >= 0) return Math.min(value, Math.round(maxHp * 0.5));
+  const minAllowed = -Math.max(3, Math.round(maxHp * 0.15));
+  return Math.max(value, minAllowed);
+}
+
 /** Snap an arbitrary number of sides to the nearest legal die. */
 function nearestDie(sides: number): DiceType {
   const allowed = [4, 6, 8, 10, 12, 20, 100];

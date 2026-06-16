@@ -42,7 +42,7 @@ export interface DMResponse {
   statChanges?: { stat: keyof Stats; delta: number; reason: string }[] | null;
 
   // --- Skill checks ---
-  requiresRoll?: { stat: keyof Stats; dc: number; description: string } | null;
+  requiresRoll?: { stat: keyof Stats; dc: number; description: string; onFailHpChange?: number } | null;
 
   // --- Quests ---
   newQuest?: {
@@ -65,6 +65,7 @@ export interface DMResponse {
   } | null;
   attitudeChange?: { npcId: string; attitude: 'hostile' | 'neutral' | 'friendly' } | null;
   shopPurchase?: { npcId: string; itemName: string; price: number } | null;
+  shopSale?: { npcId: string; itemName: string } | null;
   locationLore?: string | null;
 
   // --- Current-location enemies ---

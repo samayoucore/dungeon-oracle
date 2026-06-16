@@ -36,7 +36,7 @@ export default function InventoryPanel() {
   const [selected, setSelected] = useState<Selected | null>(null);
 
   const weight = useMemo(() => {
-    const bag = inventory.reduce((sum, item) => sum + item.weight, 0);
+    const bag = inventory.reduce((sum, item) => sum + item.weight * (item.quantity ?? 1), 0);
     const worn = SLOTS.reduce((sum, { slot }) => sum + (equipped[slot]?.weight ?? 0), 0);
     return bag + worn;
   }, [inventory, equipped]);
@@ -94,6 +94,11 @@ export default function InventoryPanel() {
                 className="relative flex aspect-square items-center justify-center rounded-md border border-surface-elevated bg-surface text-2xl transition-colors hover:border-gold"
               >
                 {item.icon}
+                {(item.quantity ?? 1) > 1 && (
+                  <span className="absolute right-0.5 top-0.5 rounded-full bg-surface-elevated px-1 text-[10px] font-semibold leading-tight text-parchment">
+                    ×{item.quantity}
+                  </span>
+                )}
                 <span className={`absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full ${RARITY_DOT[item.rarity]}`} />
               </button>
             ))}

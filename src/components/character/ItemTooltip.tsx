@@ -67,7 +67,13 @@ export default function ItemTooltip({ item, equipped, onEquip, onUnequip, onUse,
       <div className="mt-2 flex flex-wrap gap-2">
         {equipped && <TooltipButton label="Снять" onClick={onUnequip} variant="ghost" />}
         {canEquip && <TooltipButton label="Надеть" onClick={onEquip} variant="primary" />}
-        {canUse && <TooltipButton label="Использовать" onClick={onUse} variant="primary" />}
+        {canUse && (
+          <TooltipButton
+            label={(item.quantity ?? 1) > 1 ? `Использовать (1 из ${item.quantity})` : 'Использовать'}
+            onClick={onUse}
+            variant="primary"
+          />
+        )}
         {!equipped && <TooltipButton label="Выбросить" onClick={onDrop} variant="danger" />}
       </div>
     </div>

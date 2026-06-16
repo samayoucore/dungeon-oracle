@@ -34,6 +34,7 @@ import {
   clampGeneratedEnemy,
   clampGeneratedItem,
   clampGoldChange,
+  clampNarrativeHp,
   clampXpGain,
 } from '../engine/world/validation';
 import { createStartingLocation } from '../engine/world/bootstrap';
@@ -71,7 +72,7 @@ function createEquipment(): EquipmentSlots {
 }
 
 function createStats(): GameStats {
-  return { turnsPlayed: 0, enemiesKilled: 0, goldFound: 0, roomsExplored: 0, deathCount: 0 };
+  return { turnsPlayed: 0, enemiesKilled: 0, goldFound: 0, roomsExplored: 0, deathCount: 0, questsCompleted: 0 };
 }
 
 /** Fresh, character-less game state used on boot and reset. */
@@ -98,7 +99,28 @@ function createInitialState(): GameState {
     pendingRoll: null,
     storySummary: '',
     summarizedUpToTurn: 0,
+    hasAutosaved: false,
   };
+}
+
+/**
+ * Copy live combat HP/status back onto the current location's enemy objects.
+ * Immer gives `combat.enemies` and `location.enemiesPresent` independent draft
+ * paths, so damage dealt during combat never reaches the location copy by
+ * itself. Safe to call with no combat / location / matching enemies (no-op),
+ * and idempotent (re-assigning the same values changes nothing).
+ */
+function syncCombatEnemiesIntoLocation(s: GameState): void {
+  if (!s.combat || !s.currentLocationId) return;
+  const loc = s.locations[s.currentLocationId];
+  if (!loc) return;
+  for (const combatEnemy of s.combat.enemies) {
+    const locEnemy = loc.enemiesPresent.find((e) => e.id === combatEnemy.id);
+    if (locEnemy) {
+      locEnemy.hp = combatEnemy.hp;
+      locEnemy.statusEffects = combatEnemy.statusEffects;
+    }
+  }
 }
 
 /** Imperative actions exposed alongside the {@link GameState}. */
@@ -153,6 +175,9 @@ export interface GameActions {
   setNpcAttitude: (npcId: string, attitude: 'hostile' | 'neutral' | 'friendly') => void;
   logNpcInteraction: (npcId: string, summary: string) => void;
   processShopPurchase: (npcId: string, itemName: string, price: number) => boolean;
+
+  // --- Phase 10 ---
+  processShopSale: (npcId: string, itemName: string) => { success: boolean; gold: number };
 
   // --- AI orchestration (Phase 7) ---
   submitPlayerAction: (action: string) => Promise<void>;
@@ -242,11 +267,14 @@ export const useGameStore = create<GameStore>()(
 
       // 3. HP and status effects.
       if (response.hpChange) {
-        a.updateHp(response.hpChange);
-        a.addNarrative(
-          response.hpChange > 0 ? `💚 +${response.hpChange} HP` : `💔 ${response.hpChange} HP`,
-          response.hpChange > 0 ? 'loot' : 'combat',
-        );
+        const target = get().character;
+        if (target) {
+          const hp = clampNarrativeHp(response.hpChange, target.maxHp);
+          if (hp !== 0) {
+            a.updateHp(hp);
+            a.addNarrative(hp > 0 ? `💚 +${hp} HP` : `💔 ${hp} HP`, hp > 0 ? 'loot' : 'combat');
+          }
+        }
       }
       if (response.statusEffects && (response.statusEffects.add?.length || response.statusEffects.remove?.length)) {
         a.applyStatusEffects(response.statusEffects.add ?? [], response.statusEffects.remove ?? []);
@@ -276,6 +304,10 @@ export const useGameStore = create<GameStore>()(
             a.addNarrative(gold > 0 ? `+${gold} золота` : `Потеряно ${Math.abs(gold)} золота`, 'loot');
           }
         }
+      }
+      if (response.shopSale) {
+        const sale = a.processShopSale(response.shopSale.npcId, response.shopSale.itemName);
+        if (sale.success) a.addNarrative(`Продано: ${response.shopSale.itemName} за ${sale.gold}з`, 'loot');
       }
       if (response.xpGained) {
         const xp = clampXpGain(response.xpGained, get().character?.level ?? 1);
@@ -469,15 +501,27 @@ export const useGameStore = create<GameStore>()(
           if (amount > 0) state.gameStats.goldFound += amount;
         }),
 
+      // Stack consumables (potions) by name; never stack gear (hidden stat diffs).
       addItem: (item) =>
         set((state) => {
-          state.inventory.push(item);
+          if (item.type === 'potion') {
+            const existing = state.inventory.find((i) => i.type === 'potion' && i.name === item.name);
+            if (existing) {
+              existing.quantity = (existing.quantity ?? 1) + (item.quantity ?? 1);
+              return;
+            }
+          }
+          state.inventory.push({ ...item, quantity: item.quantity ?? 1 });
         }),
 
+      // Decrement a stack; only splice the slot once the last unit is gone.
       removeItem: (itemId) =>
         set((state) => {
           const index = state.inventory.findIndex((item) => item.id === itemId);
-          if (index !== -1) state.inventory.splice(index, 1);
+          if (index === -1) return;
+          const item = state.inventory[index];
+          if ((item.quantity ?? 1) > 1) item.quantity = (item.quantity ?? 1) - 1;
+          else state.inventory.splice(index, 1);
         }),
 
       equipItem: (item) =>
@@ -516,7 +560,8 @@ export const useGameStore = create<GameStore>()(
           state.quests.push(quest);
         }),
 
-      advanceObjective: (questId, objectiveId, amount = 1) =>
+      advanceObjective: (questId, objectiveId, amount = 1) => {
+        let xpToAward = 0;
         set((state) => {
           const quest = state.quests.find((q) => q.id === questId);
           if (!quest) {
@@ -530,10 +575,28 @@ export const useGameStore = create<GameStore>()(
           }
           objective.current = Math.min(objective.target, objective.current + amount);
           objective.isComplete = objective.current >= objective.target;
-          if (quest.objectives.every((o) => o.isComplete)) {
+          if (quest.objectives.every((o) => o.isComplete) && quest.status === 'active') {
             quest.status = 'completed';
+            state.gameStats.questsCompleted = (state.gameStats.questsCompleted ?? 0) + 1;
+            xpToAward = quest.rewards.xp ?? 0;
+            if (quest.rewards.gold && state.character) state.character.gold += quest.rewards.gold;
+            if (quest.rewards.items?.length) {
+              state.inventory.push(...quest.rewards.items.map((i) => ({ ...i, id: createId(), quantity: i.quantity ?? 1 })));
+            }
+            state.narrativeLog.push({
+              id: createId(),
+              type: 'quest',
+              timestamp: Date.now(),
+              text:
+                `✦ Квест завершён: "${quest.title}"` +
+                (quest.rewards.gold ? ` (+${quest.rewards.gold} золота)` : '') +
+                (quest.rewards.items?.length ? ` (+${quest.rewards.items.length} предмет(ов))` : ''),
+            });
           }
-        }),
+        });
+        // addXp runs its own multi-level-up loop — must be called OUTSIDE the set() above.
+        if (xpToAward > 0) get().addXp(xpToAward);
+      },
 
       setCombat: (combat) =>
         set((state) => {
@@ -636,6 +699,20 @@ export const useGameStore = create<GameStore>()(
               text: `✦ ${STAT_LABELS_RU[stat]} ${actual > 0 ? '+' : ''}${actual} (${change.reason})`,
               timestamp: Date.now(),
             });
+            if (stat === 'str') {
+              // Carry capacity (= str * 15) is computed live in InventoryPanel, so
+              // no field to update — but warn if the lower limit is now exceeded.
+              const newCapacity = c.stats.str * 15;
+              const currentWeight = state.inventory.reduce((sum, i) => sum + i.weight * (i.quantity ?? 1), 0);
+              if (currentWeight > newCapacity) {
+                state.narrativeLog.push({
+                  id: createId(),
+                  type: 'system',
+                  text: `⚠ Ты перегружен — грузоподъёмность снизилась до ${newCapacity} фунтов.`,
+                  timestamp: Date.now(),
+                });
+              }
+            }
           }
         }),
 
@@ -644,7 +721,10 @@ export const useGameStore = create<GameStore>()(
           for (const name of names) {
             const target = name.trim().toLowerCase();
             const index = state.inventory.findIndex((i) => i.name.toLowerCase() === target);
-            if (index !== -1) state.inventory.splice(index, 1);
+            if (index === -1) continue;
+            const item = state.inventory[index];
+            if ((item.quantity ?? 1) > 1) item.quantity = (item.quantity ?? 1) - 1;
+            else state.inventory.splice(index, 1);
           }
         }),
 
@@ -886,6 +966,29 @@ export const useGameStore = create<GameStore>()(
         return success;
       },
 
+      processShopSale: (npcId, itemName) => {
+        let result = { success: false, gold: 0 };
+        set((state) => {
+          if (!state.npcs[npcId]) {
+            console.warn('[DM] shopSale: unknown npcId', npcId);
+            return;
+          }
+          const index = state.inventory.findIndex((i) => i.name.toLowerCase() === itemName.toLowerCase());
+          if (index === -1) {
+            console.warn('[DM] shopSale: item not in inventory', itemName);
+            return;
+          }
+          if (!state.character) return;
+          const item = state.inventory[index];
+          const sellPrice = Math.max(1, Math.round(item.value * 0.4)); // fixed 40%, not AI-decided
+          if ((item.quantity ?? 1) > 1) item.quantity = (item.quantity ?? 1) - 1;
+          else state.inventory.splice(index, 1);
+          state.character.gold += sellPrice;
+          result = { success: true, gold: sellPrice };
+        });
+        return result;
+      },
+
       // -------------------------------------------------------------------
       // AI orchestration (Phase 7)
       // -------------------------------------------------------------------
@@ -935,6 +1038,21 @@ export const useGameStore = create<GameStore>()(
           return;
         }
         get().clearPendingRoll();
+
+        // Phase 10: apply onFail damage immediately (clamped) so it lands with
+        // the dice result, before the AI narrates the outcome.
+        if (!success && pending.onFailHpChange) {
+          const c = get().character;
+          if (c) {
+            const hp = clampNarrativeHp(pending.onFailHpChange, c.maxHp);
+            if (hp !== 0) {
+              get().updateHp(hp);
+              get().addNarrative(`💔 ${hp} HP`, 'combat');
+            }
+          }
+          if (get().screen === 'game-over') return; // a fatal fall — no AI follow-up.
+        }
+
         const ctx = buildContext();
         if (!ctx) return;
 
