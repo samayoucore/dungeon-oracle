@@ -12,6 +12,7 @@ import InventoryPanel from '../character/InventoryPanel';
 import LocationAtlas from '../game/LocationAtlas';
 import ExitPanel from '../game/ExitPanel';
 import LocationInfo from '../game/LocationInfo';
+import NpcPanel from '../game/NpcPanel';
 import NarrativeLog from '../game/NarrativeLog';
 import PlayerInput from '../game/PlayerInput';
 import GameMenu from '../game/GameMenu';
@@ -144,6 +145,7 @@ export default function GameScreen() {
             <div className="border-t border-surface-elevated pt-3">
               <LocationInfo location={currentLocation} />
             </div>
+            <NpcPanel />
           </div>
         </section>
       </div>

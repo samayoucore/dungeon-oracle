@@ -21,11 +21,11 @@ interface EffectConfig {
 // Loops are pure CSS keyframes (see index.css) — never framer-motion — so the
 // perpetual animation can't interfere with AnimatePresence exit tracking.
 const CONFIG: Record<Exclude<WeatherEffect, 'none'>, EffectConfig> = {
-  rain: { count: 16, keyframe: 'weather-rain', color: '#94a3b8', minDur: 0.8, maxDur: 1.6, shape: 'line', timing: 'linear' },
-  fog: { count: 6, keyframe: 'weather-fog', color: '#94a3b8', minDur: 16, maxDur: 28, shape: 'fog', timing: 'linear' },
-  embers: { count: 16, keyframe: 'weather-ember', color: '#c9a227', minDur: 4, maxDur: 8, shape: 'dot', timing: 'ease-out' },
-  snow: { count: 16, keyframe: 'weather-snow', color: '#e8d5b0', minDur: 6, maxDur: 11, shape: 'dot', timing: 'ease-in-out' },
-  dust: { count: 14, keyframe: 'weather-snow', color: '#a8a29e', minDur: 9, maxDur: 16, shape: 'dot', timing: 'ease-in-out' },
+  rain: { count: 28, keyframe: 'weather-rain', color: '#aab6c8', minDur: 0.7, maxDur: 1.4, shape: 'line', timing: 'linear' },
+  fog: { count: 9, keyframe: 'weather-fog', color: '#94a3b8', minDur: 16, maxDur: 28, shape: 'fog', timing: 'linear' },
+  embers: { count: 24, keyframe: 'weather-ember', color: '#e0b84a', minDur: 4, maxDur: 8, shape: 'dot', timing: 'ease-out' },
+  snow: { count: 26, keyframe: 'weather-snow', color: '#f0e4cc', minDur: 6, maxDur: 11, shape: 'dot', timing: 'ease-in-out' },
+  dust: { count: 22, keyframe: 'weather-snow', color: '#bdb3a3', minDur: 9, maxDur: 16, shape: 'dot', timing: 'ease-in-out' },
 };
 
 interface Particle {
@@ -65,7 +65,8 @@ export default function WeatherOverlay({ effect }: WeatherOverlayProps) {
   const particles = useMemo(() => (effect === 'none' ? [] : buildParticles(effect)), [effect]);
   if (effect === 'none') return null;
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden">
+    // z-20: above the game panels (z-10) but below combat/modals (z-50+).
+    <div className="pointer-events-none absolute inset-0 z-20 overflow-hidden">
       {particles.map((p) => (
         <span key={p.id} className="absolute" style={p.style} />
       ))}
