@@ -9,9 +9,10 @@ export const SAVE_SLOT_COUNT = 3;
 /**
  * Current save schema version. v2 (Phase 7) introduced the AI `locations`
  * world model; v3 (Phase 8) added queued level-ups, story summary and persisted
- * AI message history. Older saves are structurally incompatible -> ignored.
+ * AI message history; v4 (Phase 12) added Character.talents, decision log and
+ * other run state. Older saves are structurally incompatible -> ignored.
  */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 
 /** Emoji icon per class — used in save lists and character UI. */
 export const CLASS_ICONS: Record<CharacterClass, string> = {

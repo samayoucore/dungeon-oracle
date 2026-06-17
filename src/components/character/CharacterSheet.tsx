@@ -1,21 +1,13 @@
 import type { ReactNode } from 'react';
 import { Award, Coins, Shield, Zap } from 'lucide-react';
-import type { Character, CharacterClass, StatusEffectType } from '../../types';
+import type { Character, StatusEffectType } from '../../types';
 import { CLASS_BY_ID, RACE_BY_ID, STATS_INFO } from '../../engine/character/data';
 import { formatModifier } from '../../engine/character/creation';
+import Portrait from '../ui/Portrait';
 
 interface CharacterSheetProps {
   character: Character;
 }
-
-const CLASS_AVATAR: Record<CharacterClass, string> = {
-  fighter: '⚔️',
-  rogue: '🗡️',
-  wizard: '🔮',
-  cleric: '✝️',
-  ranger: '🏹',
-  bard: '🎵',
-};
 
 const STATUS_EMOJI: Record<StatusEffectType, string> = {
   poisoned: '🐍',
@@ -48,8 +40,8 @@ export default function CharacterSheet({ character }: CharacterSheetProps) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="flex items-center gap-3">
-        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-surface-elevated text-2xl">
-          {CLASS_AVATAR[character.class]}
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-elevated">
+          <Portrait seed={character.name + character.race + character.class} roleOrClass={character.class} size={48} />
         </div>
         <div className="min-w-0">
           <div className="truncate font-serif text-lg text-parchment">{character.name}</div>

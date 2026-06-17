@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from 'react';
 import { motion } from 'framer-motion';
 import type { LevelUpInfo } from '../../types';
 import { useSound } from '../../hooks/useSound';
+import { useGameStore } from '../../store/gameStore';
 
 interface LevelUpScreenProps {
   info: LevelUpInfo;
@@ -33,8 +34,10 @@ export default function LevelUpScreen({ info, onClose }: LevelUpScreenProps) {
   const particles = useMemo(makeParticles, []);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const { play } = useSound();
+  const pendingTalentChoices = useGameStore((s) => s.pendingTalentChoices);
+  const chooseTalent = useGameStore((s) => s.chooseTalent);
+  const talentChoice = pendingTalentChoices.find((t) => t.level === info.newLevel);
   useEffect(() => {
-    buttonRef.current?.focus();
     play('level_up');
   }, [play]);
 
@@ -85,13 +88,33 @@ export default function LevelUpScreen({ info, onClose }: LevelUpScreenProps) {
           </div>
         )}
 
+        {talentChoice && (
+          <div className="relative mb-4">
+            <div className="mb-2 text-sm font-semibold text-gold">Выбери талант:</div>
+            <div className="grid grid-cols-2 gap-2">
+              {talentChoice.options.map((opt) => (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => chooseTalent(talentChoice.level, opt.id)}
+                  className="rounded-md border border-gold/30 bg-dungeon/40 p-3 text-left transition-colors hover:border-gold"
+                >
+                  <div className="font-serif text-sm text-parchment">{opt.name}</div>
+                  <div className="mt-1 text-xs text-muted">{opt.description}</div>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         <button
           ref={buttonRef}
           type="button"
           onClick={onClose}
-          className="relative w-full rounded-md bg-gold px-4 py-3 font-semibold text-dungeon transition-colors hover:bg-gold/90"
+          disabled={!!talentChoice}
+          className="relative w-full rounded-md bg-gold px-4 py-3 font-semibold text-dungeon transition-colors hover:bg-gold/90 disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Продолжить приключение
+          {talentChoice ? 'Сначала выбери талант' : 'Продолжить приключение'}
         </button>
       </motion.div>
     </div>

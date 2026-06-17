@@ -147,6 +147,10 @@ export default function CombatPanel({ onVictory }: CombatPanelProps) {
     }
     logBoth(result.narrative);
     if (result.killedEnemyId) play('enemy_death');
+    if (result.healToPlayer) {
+      updateHp(result.healToPlayer);
+      logBoth(`Ты восстанавливаешь ${result.healToPlayer} HP.`);
+    }
     setDice(null);
     await wait(150);
     await afterPlayerAction();

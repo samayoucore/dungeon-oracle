@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
 import { getDifficulty } from '../../engine/world/validation';
 import type { Difficulty } from '../../engine/world/validation';
+import DecisionGraph from '../game/DecisionGraph';
 
 /** Honest one-liner about whether this run was actually saved. */
 function getSaveStatusMessage(hasAutosaved: boolean, difficulty: Difficulty): string {
@@ -45,6 +46,7 @@ export default function GameOverScreen() {
   const beginCreation = useGameStore((s) => s.beginCreation);
   const setScreen = useGameStore((s) => s.setScreen);
   const hasAutosaved = useGameStore((s) => s.hasAutosaved);
+  const decisionLog = useGameStore((s) => s.decisionLog);
 
   const questsDone = quests.filter((q) => q.status === 'completed').length;
   const saveStatus = getSaveStatusMessage(hasAutosaved, getDifficulty());
@@ -72,6 +74,17 @@ export default function GameOverScreen() {
       </h1>
 
       <p className="max-w-md font-serif italic text-muted">{epitaphFor(character?.level ?? 1)}</p>
+
+      <div className="w-full max-w-md">
+        <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted">Твой путь</h3>
+        {decisionLog.length > 0 ? (
+          <div className="rounded-xl border border-surface-elevated bg-surface p-3">
+            <DecisionGraph entries={decisionLog} />
+          </div>
+        ) : (
+          <p className="text-sm italic text-muted">Эта история не оставила заметных развилок.</p>
+        )}
+      </div>
 
       {character && (
         <div className="w-full max-w-md rounded-xl border border-danger/20 bg-surface p-5 text-left">

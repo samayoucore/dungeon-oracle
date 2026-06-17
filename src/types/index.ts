@@ -113,6 +113,8 @@ export interface Character {
   modifiers: StatModifiers;
   statusEffects: StatusEffect[];
   spellSlots: SpellSlots;
+  /** Ids of chosen talents (Phase 12). */
+  talents: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +513,38 @@ export interface ChatMessage {
 }
 
 // ---------------------------------------------------------------------------
+// Talents (Phase 12). Defined here (canonical) so GameState can reference them
+// without a types <-> engine import cycle; talents.ts re-exports these.
+// ---------------------------------------------------------------------------
+
+export type TalentEffectKind =
+  | 'damage_bonus_low_hp'
+  | 'damage_reduction'
+  | 'crit_range_expand'
+  | 'heal_on_kill';
+
+export interface TalentOption {
+  id: string;
+  name: string;
+  description: string;
+  effect: { kind: TalentEffectKind; amount?: number };
+}
+
+export interface TalentChoice {
+  level: number;
+  options: TalentOption[];
+}
+
+/** A logged major story decision (Phase 12), for the decision graph. */
+export interface DecisionLogEntry {
+  id: string;
+  turn: number;
+  description: string;
+  consequence?: string;
+  locationName: string;
+}
+
+// ---------------------------------------------------------------------------
 // Aggregate game state & saves
 // ---------------------------------------------------------------------------
 
@@ -562,6 +596,18 @@ export interface GameState {
 
   /** True once this run has been autosaved at least once (Phase 11). */
   hasAutosaved: boolean;
+
+  // --- Phase 12 ---
+  /** Talent choices queued by level-ups, consumed in the LevelUpScreen. */
+  pendingTalentChoices: TalentChoice[];
+  /** Latest AI-suggested quick actions (chips above the input). */
+  lastSuggestedActions: string[];
+  /** Globally-unlocked achievement ids (mirrors localStorage). */
+  unlockedAchievements: string[];
+  /** Queue of achievement ids awaiting a "trophy unlocked" toast. */
+  pendingAchievementToasts: string[];
+  /** Major story decisions logged this run (drives the decision graph). */
+  decisionLog: DecisionLogEntry[];
 }
 
 export interface SaveSlot {

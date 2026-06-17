@@ -28,7 +28,9 @@ import {
   xpToNextFor,
 } from '../engine/character/progression';
 import { abilityModifier, getIntroNarrative } from '../engine/character/creation';
+import { getTalentChoices } from '../engine/character/talents';
 import { STAT_LABELS_RU } from '../engine/character/data';
+import { persistUnlock } from '../utils/achievements';
 import {
   clamp,
   clampGeneratedEnemy,
@@ -100,7 +102,28 @@ function createInitialState(): GameState {
     storySummary: '',
     summarizedUpToTurn: 0,
     hasAutosaved: false,
+    pendingTalentChoices: [],
+    lastSuggestedActions: [],
+    unlockedAchievements: [],
+    pendingAchievementToasts: [],
+    decisionLog: [],
   };
+}
+
+/**
+ * Unlock an achievement on the draft + persist it globally (Phase 12). Operates
+ * directly on the Immer draft so it can be called from inside other set()
+ * blocks without nesting set(). Idempotent / silent if already unlocked.
+ */
+function unlockAchievement(s: GameState, id: string): void {
+  if (s.unlockedAchievements.includes(id)) return;
+  if (!persistUnlock(id)) {
+    // Already in localStorage from a previous run — mirror it without a toast.
+    if (!s.unlockedAchievements.includes(id)) s.unlockedAchievements.push(id);
+    return;
+  }
+  s.unlockedAchievements.push(id);
+  s.pendingAchievementToasts.push(id);
 }
 
 /**
@@ -179,6 +202,14 @@ export interface GameActions {
 
   // --- Phase 10 ---
   processShopSale: (npcId: string, itemName: string) => { success: boolean; gold: number };
+
+  // --- Phase 12 ---
+  chooseTalent: (level: number, talentId: string) => void;
+  setSuggestedActions: (actions: string[]) => void;
+  checkAndUnlock: (id: string) => void;
+  consumeAchievementToast: () => void;
+  setUnlockedAchievements: (ids: string[]) => void;
+  logMajorDecision: (description: string, consequence?: string) => void;
 
   // --- AI orchestration (Phase 7) ---
   submitPlayerAction: (action: string) => Promise<void>;
@@ -328,8 +359,9 @@ export const useGameStore = create<GameStore>()(
       if (response.newQuest) a.addDynamicQuest(response.newQuest);
       if (response.questUpdate) a.advanceObjective(response.questUpdate.questId, response.questUpdate.objectiveId);
 
-      // 6. World facts.
+      // 6. World facts + major story decisions.
       if (response.worldFlags) a.setWorldFlags(response.worldFlags);
+      if (response.majorDecision) a.logMajorDecision(response.majorDecision.description, response.majorDecision.consequence);
 
       // 7. mustFight guard BEFORE combatStart.
       let forcedCombat = false;
@@ -337,6 +369,7 @@ export const useGameStore = create<GameStore>()(
         const result = a.clearLocationEnemies();
         if (result.blocked && result.survivor) {
           a.addNarrative(`Что-то идёт не так... ${result.survivor.name} оказывается жив — твоя хитрость провалилась!`, 'combat');
+          a.checkAndUnlock('silver_tongue');
           forcedCombat = true;
         }
       }
@@ -396,6 +429,9 @@ export const useGameStore = create<GameStore>()(
           console.warn('[DM] unknown moveToLocation id', response.moveToLocation.locationId);
         }
       }
+
+      // Phase 12: surface AI-suggested quick actions (chips above the input).
+      if (response.suggestedActions?.length) a.setSuggestedActions(response.suggestedActions);
     }
 
     return {
@@ -454,6 +490,7 @@ export const useGameStore = create<GameStore>()(
           const { character } = state;
           if (!character) return;
           character.hp = Math.max(0, Math.min(character.maxHp, character.hp + delta));
+          if (character.hp === 1) unlockAchievement(state, 'close_call');
           if (character.hp === 0) {
             state.screen = 'game-over';
           }
@@ -475,7 +512,9 @@ export const useGameStore = create<GameStore>()(
             c.hp += hpGained;
             c.proficiencyBonus = proficiencyForLevel(newLevel);
             c.xpToNext = xpToNextFor(newLevel);
-            const features = classFeatures(c.class, newLevel);
+            // Phase 12: at talent levels the choice replaces the fixed feature.
+            const talentChoices = getTalentChoices(c.class, newLevel);
+            const features = talentChoices ? [] : classFeatures(c.class, newLevel);
             state.narrativeLog.push({
               id: createId(),
               type: 'system',
@@ -492,6 +531,7 @@ export const useGameStore = create<GameStore>()(
               newProf: c.proficiencyBonus,
               features,
             });
+            if (talentChoices) state.pendingTalentChoices.push({ level: newLevel, options: talentChoices });
           }
         }),
 
@@ -500,6 +540,7 @@ export const useGameStore = create<GameStore>()(
           if (!state.character) return;
           state.character.gold = Math.max(0, state.character.gold + amount);
           if (amount > 0) state.gameStats.goldFound += amount;
+          if (state.character.gold >= 500) unlockAchievement(state, 'gold_hoarder');
         }),
 
       // Stack consumables (potions) by name; never stack gear (hidden stat diffs).
@@ -579,6 +620,7 @@ export const useGameStore = create<GameStore>()(
           if (quest.objectives.every((o) => o.isComplete) && quest.status === 'active') {
             quest.status = 'completed';
             state.gameStats.questsCompleted = (state.gameStats.questsCompleted ?? 0) + 1;
+            if (state.gameStats.questsCompleted >= 5) unlockAchievement(state, 'quest_master');
             xpToAward = quest.rewards.xp ?? 0;
             if (quest.rewards.gold && state.character) state.character.gold += quest.rewards.gold;
             if (quest.rewards.items?.length) {
@@ -643,6 +685,7 @@ export const useGameStore = create<GameStore>()(
       incrementTurns: () =>
         set((state) => {
           state.gameStats.turnsPlayed += 1;
+          if (state.gameStats.turnsPlayed >= 100) unlockAchievement(state, 'survivor');
         }),
 
       markAutosaved: () =>
@@ -691,6 +734,7 @@ export const useGameStore = create<GameStore>()(
             const actual = next - old;
             if (actual === 0) continue;
             c.stats[stat] = next;
+            unlockAchievement(state, actual < 0 ? 'cursed' : 'blessed');
             const oldMod = abilityModifier(old);
             const newMod = abilityModifier(next);
             c.modifiers[stat] = newMod;
@@ -838,6 +882,7 @@ export const useGameStore = create<GameStore>()(
             }
             state.currentLocationId = existing.id;
             state.depth = clamp(state.depth + (spec.depthDelta ?? 0), 1, 20);
+            if (state.depth >= 10) unlockAchievement(state, 'deep_diver');
             resultId = existing.id;
             return;
           }
@@ -865,6 +910,7 @@ export const useGameStore = create<GameStore>()(
           state.locations[id] = newLoc;
           state.currentLocationId = id;
           state.depth = clamp(state.depth + (spec.depthDelta ?? 0), 1, 20);
+          if (state.depth >= 10) unlockAchievement(state, 'deep_diver');
           resultId = id;
         });
         return resultId;
@@ -905,6 +951,7 @@ export const useGameStore = create<GameStore>()(
             state.gameStats.enemiesKilled += loc.enemiesPresent.filter((e) => e.hp <= 0).length;
             loc.enemiesPresent = loc.enemiesPresent.filter((e) => e.hp > 0);
           }
+          if (state.gameStats.enemiesKilled >= 1) unlockAchievement(state, 'first_blood');
         }),
 
       triggerSkillCheck: (req) =>
@@ -956,6 +1003,9 @@ export const useGameStore = create<GameStore>()(
             return;
           }
           mem.attitude = attitude;
+          if (Object.values(state.npcMemory).filter((m) => m.attitude === 'friendly').length >= 3) {
+            unlockAchievement(state, 'friend_of_many');
+          }
         }),
 
       logNpcInteraction: (npcId, summary) =>
@@ -1007,6 +1057,49 @@ export const useGameStore = create<GameStore>()(
       },
 
       // -------------------------------------------------------------------
+      // Phase 12
+      // -------------------------------------------------------------------
+
+      chooseTalent: (level, talentId) =>
+        set((state) => {
+          if (!state.character) return;
+          if (!state.character.talents.includes(talentId)) state.character.talents.push(talentId);
+          state.pendingTalentChoices = state.pendingTalentChoices.filter((t) => t.level !== level);
+        }),
+
+      setSuggestedActions: (actions) =>
+        set((state) => {
+          state.lastSuggestedActions = actions;
+        }),
+
+      checkAndUnlock: (id) =>
+        set((state) => {
+          unlockAchievement(state, id);
+        }),
+
+      consumeAchievementToast: () =>
+        set((state) => {
+          state.pendingAchievementToasts.shift();
+        }),
+
+      setUnlockedAchievements: (ids) =>
+        set((state) => {
+          state.unlockedAchievements = ids;
+        }),
+
+      logMajorDecision: (description, consequence) =>
+        set((state) => {
+          if (!state.currentLocationId) return;
+          state.decisionLog.push({
+            id: createId(),
+            turn: state.gameStats.turnsPlayed,
+            description,
+            consequence,
+            locationName: state.locations[state.currentLocationId]?.name ?? '?',
+          });
+        }),
+
+      // -------------------------------------------------------------------
       // AI orchestration (Phase 7)
       // -------------------------------------------------------------------
 
@@ -1015,6 +1108,7 @@ export const useGameStore = create<GameStore>()(
         const trimmed = action.trim();
         if (s.isLoading || s.combat?.active || s.pendingRoll) return;
         if (!trimmed || !s.character || !s.currentLocationId) return;
+        s.setSuggestedActions([]); // clear stale chips as a new turn begins
 
         if (!hasApiKey()) {
           s.addNarrative(`> ${trimmed}`, 'action');

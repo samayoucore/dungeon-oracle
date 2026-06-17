@@ -4,6 +4,8 @@ import { Backpack, Map as MapIcon, ScrollText, Settings, User } from 'lucide-rea
 import { useGameStore } from '../../store/gameStore';
 import { resolveLoot } from '../../engine/combat/system';
 import { getDifficulty } from '../../engine/world/validation';
+import { getWeatherForLocation } from '../../engine/world/weatherMap';
+import { getLocationTheme } from '../../engine/world/locationTheme';
 import { useAutosave } from '../../hooks/useAutosave';
 import CharacterSheet from '../character/CharacterSheet';
 import InventoryPanel from '../character/InventoryPanel';
@@ -17,7 +19,10 @@ import CombatPanel from '../game/CombatPanel';
 import LootPanel from '../game/LootPanel';
 import type { LootResult } from '../game/LootPanel';
 import SkillCheckModal from '../game/SkillCheckModal';
+import WeatherOverlay from '../game/WeatherOverlay';
 import LevelUpScreen from './LevelUpScreen';
+import ChronicleScreen from './ChronicleScreen';
+import AchievementsScreen from './AchievementsScreen';
 import Toast, { useToasts } from '../ui/Toast';
 
 const PANEL = 'min-h-0 flex-col overflow-hidden rounded-lg border border-surface-elevated bg-surface';
@@ -63,6 +68,8 @@ export default function GameScreen() {
   const [tab, setTab] = useState<Tab>('map');
   const [isTyping, setIsTyping] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [chronicleOpen, setChronicleOpen] = useState(false);
+  const [achievementsOpen, setAchievementsOpen] = useState(false);
   const [loot, setLoot] = useState<LootResult | null>(null);
   const { toasts, push } = useToasts();
 
@@ -99,10 +106,14 @@ export default function GameScreen() {
 
   const inCombat = !!combat?.active;
   const leftVisible = tab === 'character' || tab === 'bag';
+  const theme = getLocationTheme(currentLocation.type);
+  const weather = getWeatherForLocation(currentLocation);
 
   return (
-    <div className="flex h-[100dvh] flex-col">
-      <header className="flex shrink-0 items-center justify-between border-b border-surface-elevated bg-surface px-4 py-2">
+    <div className="relative flex h-[100dvh] flex-col" style={{ background: theme.background, transition: 'background 1.2s ease' }}>
+      <div className="relative z-10 h-0.5 w-full shrink-0" style={{ background: theme.glow, opacity: 0.4 }} />
+      <WeatherOverlay effect={weather} />
+      <header className="relative z-10 flex shrink-0 items-center justify-between border-b border-surface-elevated bg-surface px-4 py-2">
         <div className="text-sm text-muted">
           Глубина {depth} · <span className="text-parchment">{currentLocation.name}</span>
         </div>
@@ -111,7 +122,7 @@ export default function GameScreen() {
         </button>
       </header>
 
-      <div className="flex flex-1 flex-col gap-3 overflow-hidden p-3 lg:grid lg:grid-cols-[260px_1fr_280px] lg:grid-rows-1">
+      <div className="relative z-10 flex flex-1 flex-col gap-3 overflow-hidden p-3 lg:grid lg:grid-cols-[260px_1fr_280px] lg:grid-rows-1">
         <section className={`${leftVisible ? 'flex flex-1' : 'hidden'} lg:flex ${PANEL}`}>
           <div className="hidden shrink-0 border-b border-surface-elevated lg:flex">
             <LeftTab active={tab !== 'bag'} onClick={() => setTab('character')} label="Герой" />
@@ -137,7 +148,7 @@ export default function GameScreen() {
         </section>
       </div>
 
-      <nav className="flex shrink-0 border-t border-surface-elevated bg-surface lg:hidden">
+      <nav className="relative z-10 flex shrink-0 border-t border-surface-elevated bg-surface lg:hidden">
         <TabButton active={tab === 'character'} onClick={() => setTab('character')} icon={<User className="h-5 w-5" />} label="Герой" />
         <TabButton active={tab === 'log'} onClick={() => setTab('log')} icon={<ScrollText className="h-5 w-5" />} label="Лог" />
         <TabButton active={tab === 'map'} onClick={() => setTab('map')} icon={<MapIcon className="h-5 w-5" />} label="Карта" />
@@ -150,7 +161,21 @@ export default function GameScreen() {
       {pendingLevelUps.length > 0 && (
         <LevelUpScreen key={pendingLevelUps[0].newLevel} info={pendingLevelUps[0]} onClose={consumePendingLevelUp} />
       )}
-      {menuOpen && <GameMenu onClose={() => setMenuOpen(false)} />}
+      {menuOpen && (
+        <GameMenu
+          onClose={() => setMenuOpen(false)}
+          onOpenChronicle={() => {
+            setMenuOpen(false);
+            setChronicleOpen(true);
+          }}
+          onOpenAchievements={() => {
+            setMenuOpen(false);
+            setAchievementsOpen(true);
+          }}
+        />
+      )}
+      {chronicleOpen && <ChronicleScreen onClose={() => setChronicleOpen(false)} />}
+      {achievementsOpen && <AchievementsScreen onClose={() => setAchievementsOpen(false)} />}
       <Toast toasts={toasts} />
     </div>
   );

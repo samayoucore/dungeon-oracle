@@ -85,6 +85,10 @@ export interface DMResponse {
   } | null;
   moveToLocation?: { locationId: string; connectionLabel?: string } | null;
   currentLocationUpdate?: { name?: string; description?: string; type?: LocationType } | null;
+
+  // --- UX / meta (Phase 12) ---
+  suggestedActions?: string[] | null;
+  majorDecision?: { description: string; consequence?: string } | null;
 }
 
 // ---------------------------------------------------------------------------

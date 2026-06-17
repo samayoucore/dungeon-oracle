@@ -56,6 +56,33 @@ body {
   }
 }
 
+/* Phase 12 — weather/atmosphere particle loops (WeatherOverlay). */
+@keyframes weather-rain {
+  0% { top: -12%; opacity: 0; }
+  8% { opacity: 0.3; }
+  92% { opacity: 0.3; }
+  100% { top: 112%; opacity: 0; }
+}
+@keyframes weather-snow {
+  0% { top: -8%; opacity: 0; transform: translateX(0); }
+  10% { opacity: 0.8; }
+  50% { transform: translateX(14px); }
+  90% { opacity: 0.8; }
+  100% { top: 110%; opacity: 0; transform: translateX(-10px); }
+}
+@keyframes weather-ember {
+  0% { top: 105%; opacity: 0; }
+  15% { opacity: 0.9; }
+  85% { opacity: 0.6; }
+  100% { top: -8%; opacity: 0; }
+}
+@keyframes weather-fog {
+  0% { left: -25%; opacity: 0; }
+  20% { opacity: 0.12; }
+  80% { opacity: 0.12; }
+  100% { left: 120%; opacity: 0; }
+}
+
 /*
  * Pulsing gold glow for the final "Begin Adventure" CTA.
  * CSS-driven (not framer-motion) so it never blocks AnimatePresence exit.

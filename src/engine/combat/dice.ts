@@ -52,8 +52,9 @@ export function rollInitiative(dexMod: number): number {
   return rollRaw(20) + dexMod;
 }
 
-/** Resolve an attack with an explicit advantage/disadvantage mode. */
-export function checkHitMode(attackBonus: number, targetAC: number, mode: RollMode): AttackRoll {
+/** Resolve an attack with an explicit advantage/disadvantage mode.
+ *  critThreshold lets talents widen the crit range (e.g. 19-20). */
+export function checkHitMode(attackBonus: number, targetAC: number, mode: RollMode, critThreshold = 20): AttackRoll {
   const d20 =
     mode === 'advantage'
       ? rollWithAdvantage(20).result
@@ -64,15 +65,15 @@ export function checkHitMode(attackBonus: number, targetAC: number, mode: RollMo
   return {
     d20,
     total,
-    isCrit: d20 === 20,
+    isCrit: d20 >= critThreshold,
     isCritFail: d20 === 1,
     isHit: d20 === 20 || total >= targetAC,
   };
 }
 
 /** Standard (no advantage) attack check. */
-export function checkHit(attackBonus: number, targetAC: number): AttackRoll {
-  return checkHitMode(attackBonus, targetAC, 'normal');
+export function checkHit(attackBonus: number, targetAC: number, critThreshold = 20): AttackRoll {
+  return checkHitMode(attackBonus, targetAC, 'normal', critThreshold);
 }
 
 /** Roll damage; on a crit the dice count is doubled (bonuses are not). */

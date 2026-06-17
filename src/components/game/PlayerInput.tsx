@@ -26,6 +26,7 @@ export default function PlayerInput({ isTyping }: PlayerInputProps) {
   const isLoading = useGameStore((s) => s.isLoading);
   const inCombat = useGameStore((s) => !!s.combat?.active);
   const pendingRoll = useGameStore((s) => s.pendingRoll);
+  const suggestions = useGameStore((s) => s.lastSuggestedActions);
   const submitPlayerAction = useGameStore((s) => s.submitPlayerAction);
 
   const locked = isTyping || isLoading || inCombat || !!pendingRoll;
@@ -72,6 +73,21 @@ export default function PlayerInput({ isTyping }: PlayerInputProps) {
       {isLoading && (
         <div className="flex items-center gap-2 text-xs text-gold">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Мастер Подземелий ведёт повествование…
+        </div>
+      )}
+      {suggestions.length > 0 && !inCombat && (
+        <div className="flex flex-wrap gap-2">
+          {suggestions.map((suggestion, i) => (
+            <button
+              key={`${suggestion}-${i}`}
+              type="button"
+              onClick={() => submit(suggestion)}
+              disabled={locked}
+              className="rounded-full border border-gold/20 bg-surface px-3 py-1 text-sm text-parchment transition-colors hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {suggestion}
+            </button>
+          ))}
         </div>
       )}
       <div className="flex gap-2">

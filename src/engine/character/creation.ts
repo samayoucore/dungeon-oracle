@@ -130,6 +130,7 @@ export function buildCharacter(draft: CharacterDraft): Character {
     modifiers,
     statusEffects: [],
     spellSlots: classData.isCaster ? [{ level: 1, current: 2, max: 2 }] : [],
+    talents: [],
   };
 }
 

@@ -12,6 +12,7 @@ import {
 import type { SaveSlot } from '../../../types';
 import { CLASS_BY_ID } from '../../../engine/character/data';
 import { messageHistory } from '../../../engine/ai/messageHistory';
+import { loadUnlockedAchievements } from '../../../utils/achievements';
 
 interface SaveSlotListProps {
   onBack: () => void;
@@ -92,6 +93,14 @@ export default function SaveSlotList({ onBack }: SaveSlotListProps) {
             onLoad={(picked) => {
               loadState(picked.gameState);
               messageHistory.loadHistory(picked.aiMessageHistory ?? []);
+              // The saved snapshot's achievements/queues are stale — resync globals
+              // and drop transient run queues that must not survive a reload.
+              useGameStore.setState({
+                unlockedAchievements: loadUnlockedAchievements(),
+                pendingTalentChoices: [],
+                pendingAchievementToasts: [],
+                lastSuggestedActions: [],
+              });
             }}
             onDelete={handleDelete}
           />

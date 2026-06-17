@@ -6,10 +6,12 @@ import type { SaveSlot } from '../../types';
 
 interface GameMenuProps {
   onClose: () => void;
+  onOpenChronicle: () => void;
+  onOpenAchievements: () => void;
 }
 
 /** Pause menu: save into any of the 3 slots, resume, or quit to title. */
-export default function GameMenu({ onClose }: GameMenuProps) {
+export default function GameMenu({ onClose, onOpenChronicle, onOpenAchievements }: GameMenuProps) {
   const resetGame = useGameStore((s) => s.resetGame);
   const setScreen = useGameStore((s) => s.setScreen);
   const [slots, setSlots] = useState<(SaveSlot | null)[]>(() => listSaves());
@@ -61,6 +63,12 @@ export default function GameMenu({ onClose }: GameMenuProps) {
         <div className="flex flex-col gap-2">
           <button type="button" onClick={onClose} className="rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
             Продолжить
+          </button>
+          <button type="button" onClick={onOpenChronicle} className="rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
+            📜 Хроника
+          </button>
+          <button type="button" onClick={onOpenAchievements} className="rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
+            🏆 Достижения
           </button>
           <button type="button" onClick={() => setScreen('settings')} className="rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
             ⚙ Настройки (ключ ИИ)

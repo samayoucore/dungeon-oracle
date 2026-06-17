@@ -19,6 +19,7 @@ import type { AttackRoll, RollMode } from './dice';
 import { createRng, randomSeed, randInt, chance } from '../random';
 import { rollLoot } from '../dungeon/lootTables';
 import { effectNameRu } from './statusLabels';
+import { getActiveTalentEffect } from '../character/talents';
 
 export interface TurnResult {
   narrative: string;
@@ -31,6 +32,8 @@ export interface TurnResult {
   playerWon?: boolean;
   /** The d20 attack roll, when this turn involved an attack (drives the dice UI). */
   attackRoll?: AttackRoll;
+  /** HP to restore to the player (e.g. heal-on-kill talent); applied by caller. */
+  healToPlayer?: number;
 }
 
 const FLEE_DC = 12;
@@ -132,7 +135,8 @@ export function playerAttack(
   const enemy = targetEnemy.name;
   const blessed = character.statusEffects.some((e) => e.type === 'blessed');
   const bonus = weaponAttackBonus + (blessed ? rollRaw(4) : 0);
-  const attack = checkHit(bonus, targetEnemy.ac);
+  const critThreshold = getActiveTalentEffect(character.talents, 'crit_range_expand') ? 19 : 20;
+  const attack = checkHit(bonus, targetEnemy.ac, critThreshold);
 
   if (attack.isCritFail) {
     return { narrative: pick(FUMBLES), damageDealt: 0, damageTaken: 0, combatEnded: false, attackRoll: attack };
@@ -141,7 +145,12 @@ export function playerAttack(
     return { narrative: fill(pick(MISSES), { enemy }), damageDealt: 0, damageTaken: 0, combatEnded: false, attackRoll: attack };
   }
 
-  const damage = rollDamage(weaponDamage, attack.isCrit);
+  let damage = rollDamage(weaponDamage, attack.isCrit);
+  // Offensive talent: extra damage while bloodied (HP below half).
+  const lowHp = getActiveTalentEffect(character.talents, 'damage_bonus_low_hp');
+  if (lowHp && character.maxHp > 0 && character.hp / character.maxHp < 0.5) {
+    damage += lowHp.effect.amount ?? 0;
+  }
   const template = attack.isCrit ? pick(CRITS) : pick(HITS);
   let narrative = fill(template, { enemy, damage: String(damage) });
   const result: TurnResult = { narrative, damageDealt: damage, damageTaken: 0, combatEnded: false, attackRoll: attack };
@@ -150,6 +159,10 @@ export function playerAttack(
     result.killedEnemyId = targetEnemy.id;
     narrative += ` ${fill(pick(ENEMY_DEATHS), { enemy })}`;
     result.narrative = narrative;
+    // Lifesteal talent: heal on kill (applied by the caller via updateHp).
+    if (getActiveTalentEffect(character.talents, 'heal_on_kill')) {
+      result.healToPlayer = roll('1d4');
+    }
   }
   return result;
 }
@@ -248,7 +261,10 @@ export function resolveEnemyAction(
   if (!hit.isHit) {
     return { narrative: prefix + fill(pick(ENEMY_MISSES), { enemy: name }), damageDealt: 0, damageTaken: 0, combatEnded: false, attackRoll: hit };
   }
-  const damage = rollDamage(damageExpr(attack.damageCount, attack.damageDice, attack.damageBonus + damageBonus), hit.isCrit);
+  let damage = rollDamage(damageExpr(attack.damageCount, attack.damageDice, attack.damageBonus + damageBonus), hit.isCrit);
+  // Defensive talent: flat damage reduction on incoming hits.
+  const reduction = getActiveTalentEffect(character.talents, 'damage_reduction');
+  if (reduction) damage = Math.max(0, damage - (reduction.effect.amount ?? 0));
   return { narrative: prefix + fill(pick(ENEMY_HITS), { enemy: name, damage: String(damage) }), damageDealt: 0, damageTaken: damage, combatEnded: false, attackRoll: hit };
 }
 

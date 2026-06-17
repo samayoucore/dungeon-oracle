@@ -1,8 +1,8 @@
 import { motion } from 'framer-motion';
 import type { Character } from '../../../types';
-import { CLASS_ICONS } from '../../../utils/save';
 import { CLASS_BY_ID, RACE_BY_ID, STARTING_INVENTORY, STATS_INFO } from '../../../engine/character/data';
 import { formatModifier } from '../../../engine/character/creation';
+import Portrait from '../../ui/Portrait';
 
 interface CharacterPreviewProps {
   character: Character;
@@ -28,7 +28,9 @@ export default function CharacterPreview({ character }: CharacterPreviewProps) {
       className="mx-auto w-full max-w-2xl rounded-xl border border-gold/40 bg-surface p-5"
     >
       <div className="flex items-center gap-3 border-b border-surface-elevated pb-3">
-        <span className="text-4xl">{CLASS_ICONS[character.class]}</span>
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-elevated">
+          <Portrait seed={character.name + character.race + character.class} roleOrClass={character.class} size={56} />
+        </div>
         <div>
           <div className="font-serif text-2xl text-gold">{character.name}</div>
           <div className="text-sm text-muted">

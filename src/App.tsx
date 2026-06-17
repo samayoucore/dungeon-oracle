@@ -1,6 +1,8 @@
+import { useEffect } from 'react';
 import { motion } from 'framer-motion';
 import type { ComponentType } from 'react';
 import { useGameStore } from './store/gameStore';
+import { loadUnlockedAchievements } from './utils/achievements';
 import type { GameScreen as ScreenId } from './types';
 import TitleScreen from './components/screens/TitleScreen';
 import SettingsScreen from './components/screens/SettingsScreen';
@@ -30,7 +32,13 @@ const SCREENS: Record<ScreenId, ComponentType> = {
  */
 export default function App() {
   const screen = useGameStore((state) => state.screen);
+  const setUnlockedAchievements = useGameStore((state) => state.setUnlockedAchievements);
   const Screen = SCREENS[screen];
+
+  // Mirror globally-persisted achievements into the store once on startup.
+  useEffect(() => {
+    setUnlockedAchievements(loadUnlockedAchievements());
+  }, [setUnlockedAchievements]);
 
   return (
     <motion.div
