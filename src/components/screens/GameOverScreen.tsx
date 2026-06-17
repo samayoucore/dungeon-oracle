@@ -1,5 +1,14 @@
 import { motion } from 'framer-motion';
 import { useGameStore } from '../../store/gameStore';
+import { getDifficulty } from '../../engine/world/validation';
+import type { Difficulty } from '../../engine/world/validation';
+
+/** Honest one-liner about whether this run was actually saved. */
+function getSaveStatusMessage(hasAutosaved: boolean, difficulty: Difficulty): string {
+  if (difficulty === 'hardcore') return 'На хардкоре автосохранение отключено — эта попытка не сохранена.';
+  if (hasAutosaved) return 'Прогресс этой попытки был сохранён автоматически.';
+  return 'Эта попытка завершилась раньше, чем успело сработать автосохранение.';
+}
 
 const EPITAPHS: { max: number; text: string }[] = [
   { max: 1, text: 'Его приключение закончилось, не начавшись.' },
@@ -35,8 +44,10 @@ export default function GameOverScreen() {
   const quests = useGameStore((s) => s.quests);
   const beginCreation = useGameStore((s) => s.beginCreation);
   const setScreen = useGameStore((s) => s.setScreen);
+  const hasAutosaved = useGameStore((s) => s.hasAutosaved);
 
   const questsDone = quests.filter((q) => q.status === 'completed').length;
+  const saveStatus = getSaveStatusMessage(hasAutosaved, getDifficulty());
 
   return (
     <motion.div
@@ -88,7 +99,7 @@ export default function GameOverScreen() {
         >
           Попробовать снова
         </button>
-        <p className="text-xs text-muted">Твоё сохранение не удалено.</p>
+        <p className="text-xs text-muted">{saveStatus}</p>
         <button
           type="button"
           onClick={() => setScreen('title')}

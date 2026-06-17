@@ -559,6 +559,9 @@ export interface GameState {
   storySummary: string;
   /** turnsPlayed value at which storySummary was last regenerated. */
   summarizedUpToTurn: number;
+
+  /** True once this run has been autosaved at least once (Phase 11). */
+  hasAutosaved: boolean;
 }
 
 export interface SaveSlot {

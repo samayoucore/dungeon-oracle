@@ -18,6 +18,7 @@ export function useAutosave(interval = 3, onSaved?: (ok: boolean) => void): void
     if (turns > 0 && turns - lastSavedTurn.current >= interval) {
       lastSavedTurn.current = turns;
       const slot = saveGame(useGameStore.getState(), AUTOSAVE_SLOT);
+      if (slot) useGameStore.getState().markAutosaved();
       onSaved?.(slot !== null);
     }
   }, [turns, interval, onSaved]);

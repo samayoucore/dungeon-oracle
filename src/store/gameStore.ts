@@ -149,6 +149,7 @@ export interface GameActions {
   setStatusEffects: (effects: StatusEffect[]) => void;
   setLoading: (loading: boolean) => void;
   incrementTurns: () => void;
+  markAutosaved: () => void;
   loadState: (state: GameState) => void;
 
   // --- World model (Phase 7) ---
@@ -605,6 +606,9 @@ export const useGameStore = create<GameStore>()(
 
       endCombat: () =>
         set((state) => {
+          // Persist combat damage to the location before discarding the fight
+          // (covers flee / non-victory exits).
+          syncCombatEnemiesIntoLocation(state);
           state.combat = null;
         }),
 
@@ -639,6 +643,11 @@ export const useGameStore = create<GameStore>()(
       incrementTurns: () =>
         set((state) => {
           state.gameStats.turnsPlayed += 1;
+        }),
+
+      markAutosaved: () =>
+        set((state) => {
+          state.hasAutosaved = true;
         }),
 
       loadState: (loaded) => {
@@ -767,6 +776,7 @@ export const useGameStore = create<GameStore>()(
 
       addDynamicQuest: (quest) =>
         set((state) => {
+          const rewardItems = (quest.rewards.items ?? []).map((i) => clampGeneratedItem(i, true));
           const objectives = quest.objectives.map((o) => ({
             id: createId(),
             type: 'explore' as QuestObjectiveType,
@@ -781,7 +791,11 @@ export const useGameStore = create<GameStore>()(
             description: quest.description,
             type: 'side',
             objectives,
-            rewards: { xp: quest.rewards.xp, gold: quest.rewards.gold },
+            rewards: {
+              xp: quest.rewards.xp,
+              gold: quest.rewards.gold,
+              items: rewardItems.length > 0 ? rewardItems : undefined,
+            },
             status: 'active',
           });
           state.narrativeLog.push({ id: createId(), type: 'quest', text: `✦ Новый квест: ${quest.title}`, timestamp: Date.now() });
@@ -881,12 +895,15 @@ export const useGameStore = create<GameStore>()(
 
       markCombatResolved: (locationId) =>
         set((state) => {
+          // Pull final combat HP into the location first (idempotent), then drop
+          // the defeated. On victory every fought enemy is at <=0 HP, so this
+          // clears them while correctly preserving any survivor.
+          syncCombatEnemiesIntoLocation(state);
           state.resolvedCombatAt[locationId] = true;
           const loc = state.locations[locationId];
           if (loc) {
-            // Combat runs on copies, so source enemies keep full HP — a win clears them all.
-            state.gameStats.enemiesKilled += loc.enemiesPresent.length;
-            loc.enemiesPresent = [];
+            state.gameStats.enemiesKilled += loc.enemiesPresent.filter((e) => e.hp <= 0).length;
+            loc.enemiesPresent = loc.enemiesPresent.filter((e) => e.hp > 0);
           }
         }),
 

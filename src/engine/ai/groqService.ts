@@ -49,7 +49,7 @@ export interface DMResponse {
     title: string;
     description: string;
     objectives: { description: string; targetCount?: number }[];
-    rewards: { xp: number; gold: number };
+    rewards: { xp: number; gold: number; items?: RawItem[] };
   } | null;
   questUpdate?: { questId: string; objectiveId: string } | null;
 
