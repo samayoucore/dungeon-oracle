@@ -49,7 +49,7 @@ export default function TitleScreen() {
       </div>
 
       <footer className="absolute bottom-4 z-10 text-xs text-muted/50">
-        v0.1.0 — Portfolio Project
+        v 1.0.0
       </footer>
     </main>
   );

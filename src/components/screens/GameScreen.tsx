@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import type { CSSProperties, ReactNode } from 'react';
-import { Backpack, Coins, HeartPulse, Map as MapIcon, MapPin, ScrollText, Settings, Shield, Sparkles, User } from 'lucide-react';
+import { Backpack, Map as MapIcon, MapPin, ScrollText, Settings, Sparkles, User } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { resolveLoot } from '../../engine/combat/system';
 import { getDifficulty } from '../../engine/world/validation';
@@ -13,7 +13,6 @@ import LocationAtlas from '../game/LocationAtlas';
 import ExitPanel from '../game/ExitPanel';
 import LocationInfo from '../game/LocationInfo';
 import NpcPanel from '../game/NpcPanel';
-import WorldActionPanel from '../game/WorldActionPanel';
 import NarrativeLog from '../game/NarrativeLog';
 import PlayerInput from '../game/PlayerInput';
 import GameMenu from '../game/GameMenu';
@@ -57,17 +56,6 @@ function LeftTab({ active, onClick, label }: { active: boolean; onClick: () => v
   );
 }
 
-function StatChip({ icon, label, value }: { icon: ReactNode; label: string; value: string }) {
-  return (
-    <div className="stat-chip flex min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5">
-      <span className="shrink-0 text-gold">{icon}</span>
-      <span className="min-w-0">
-        <span className="block text-[10px] uppercase tracking-wide text-muted">{label}</span>
-        <span className="block truncate text-sm font-semibold text-parchment">{value}</span>
-      </span>
-    </div>
-  );
-}
 
 /** Main game screen: AI-driven exploration, narrative, combat and progression. */
 export default function GameScreen() {
@@ -125,7 +113,6 @@ export default function GameScreen() {
   const theme = getLocationTheme(currentLocation.type);
   const weather = getWeatherForLocation(currentLocation);
   const danger = currentLocation.dangerLevel ?? depth;
-  const hpPct = character.maxHp > 0 ? Math.round((character.hp / character.maxHp) * 100) : 0;
   const shellStyle = { '--location-bg': theme.background } as CSSProperties;
 
   return (
@@ -147,9 +134,6 @@ export default function GameScreen() {
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <StatChip icon={<HeartPulse className="h-4 w-4" />} label="HP" value={`${character.hp}/${character.maxHp} (${hpPct}%)`} />
-          <StatChip icon={<Shield className="h-4 w-4" />} label="КБ" value={`${character.ac}`} />
-          <StatChip icon={<Coins className="h-4 w-4" />} label="Золото" value={`${character.gold}`} />
           <button type="button" onClick={() => setMenuOpen(true)} className="flex items-center gap-1 rounded-md border border-white/15 bg-white/5 px-3 py-2 text-sm text-muted transition-colors hover:border-gold hover:text-gold">
             <Settings className="h-4 w-4" /> Меню
           </button>
@@ -180,7 +164,6 @@ export default function GameScreen() {
         <section className={`${tab === 'map' ? 'flex flex-1' : 'hidden'} lg:flex ${PANEL}`}>
           <PanelHeader title="Карта мира" />
           <div className="flex min-h-0 flex-col gap-4 overflow-y-auto p-3">
-            <WorldActionPanel />
             <LocationAtlas />
             <ExitPanel disabled={inCombat || isLoading} />
             <div className="rounded-lg border border-white/10 bg-dungeon/35 p-3">
