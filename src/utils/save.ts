@@ -67,16 +67,25 @@ export function saveGame(state: GameState, slotIndex: number): SaveSlot | null {
   if (!store || !isValidSlot(slotIndex) || !state.character) return null;
 
   const previous = loadGame(slotIndex);
+  const currentLocation = state.currentLocationId ? state.locations[state.currentLocationId] : null;
+  const gameState: GameState = {
+    ...state,
+    screen: 'game',
+    isLoading: false,
+    pendingRoll: null,
+    pendingAchievementToasts: [],
+    lastSuggestedActions: [],
+  };
   const slot: SaveSlot = {
     slotIndex,
     version: SAVE_VERSION,
     characterName: state.character.name,
     characterClass: state.character.class,
     characterLevel: state.character.level,
-    floor: state.depth,
+    floor: currentLocation?.dangerLevel ?? state.depth,
     savedAt: new Date().toISOString(),
     playtime: (previous?.playtime ?? 0) + minutesSince(sessionStart),
-    gameState: state,
+    gameState,
     aiMessageHistory: messageHistory.getHistory(),
   };
 

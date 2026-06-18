@@ -36,7 +36,7 @@ export interface TurnResult {
   healToPlayer?: number;
 }
 
-const FLEE_DC = 12;
+const FLEE_OPPORTUNITY_CHANCE = 0.65;
 const BERSERK_THRESHOLD = 0.5;
 const TACTICAL_RETREAT_THRESHOLD = 0.5;
 const COWARD_HOLD_THRESHOLD = 0.7;
@@ -176,12 +176,54 @@ export function playerDodge(_character: Character): TurnResult {
   };
 }
 
-export function playerFlee(character: Character): TurnResult {
-  const check = rollRaw(20) + character.modifiers.dex;
-  if (check >= FLEE_DC) {
-    return { narrative: 'Ты вырываешься и исчезаешь во тьме!', damageDealt: 0, damageTaken: 0, combatEnded: true, playerWon: false };
+function strongestAttack(enemy: Enemy) {
+  return enemy.attacks.reduce(
+    (best, attack) => (attack.damageCount * diceSides(attack.damageDice) + attack.damageBonus > best.damageCount * diceSides(best.damageDice) + best.damageBonus ? attack : best),
+    enemy.attacks[0],
+  );
+}
+
+function opportunityAttacker(enemies: Enemy[]): Enemy | undefined {
+  const living = enemies.filter((enemy) => enemy.hp > 0);
+  if (living.length === 0) return undefined;
+  return living.reduce((best, enemy) => {
+    const bestAttack = strongestAttack(best);
+    const attack = strongestAttack(enemy);
+    const bestThreat = bestAttack.toHitBonus + bestAttack.damageCount * diceSides(bestAttack.damageDice) + bestAttack.damageBonus;
+    const threat = attack.toHitBonus + attack.damageCount * diceSides(attack.damageDice) + attack.damageBonus;
+    return threat > bestThreat ? enemy : best;
+  }, living[0]);
+}
+
+export function playerFlee(character: Character, enemies: Enemy[] = []): TurnResult {
+  const attacker = opportunityAttacker(enemies);
+  if (!attacker || Math.random() > FLEE_OPPORTUNITY_CHANCE) {
+    return { narrative: 'Ты ловишь момент, срываешься с места и вырываешься из боя!', damageDealt: 0, damageTaken: 0, combatEnded: true, playerWon: false };
   }
-  return { narrative: 'Ты пытаешься сбежать, но враг преграждает путь!', damageDealt: 0, damageTaken: 0, combatEnded: false };
+
+  const attack = strongestAttack(attacker);
+  const hit = checkHit(attack.toHitBonus, character.ac);
+  if (!hit.isHit) {
+    return {
+      narrative: `${attacker.name} бьёт тебе вслед, но ты уходишь из-под удара и продолжаешь бегство!`,
+      damageDealt: 0,
+      damageTaken: 0,
+      combatEnded: true,
+      playerWon: false,
+      attackRoll: hit,
+    };
+  }
+
+  let damage = rollDamage(damageExpr(attack.damageCount, attack.damageDice, attack.damageBonus), hit.isCrit);
+  const reduction = getActiveTalentEffect(character.talents, 'damage_reduction');
+  if (reduction) damage = Math.max(0, damage - (reduction.effect.amount ?? 0));
+  return {
+    narrative: `${attacker.name} ловит тебя на отходе: ${attack.name} наносит ${damage} урона. Побег сорван — нужно пробовать снова.`,
+    damageDealt: 0,
+    damageTaken: damage,
+    combatEnded: false,
+    attackRoll: hit,
+  };
 }
 
 export function playerUseItem(_character: Character, item: Item, _targetEnemyId?: string): TurnResult {

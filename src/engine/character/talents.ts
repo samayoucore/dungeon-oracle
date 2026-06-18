@@ -31,17 +31,63 @@ const L5_NAMES: Record<CharacterClass, [string, string]> = {
   bard: ['Крещендо', 'Вампирическая мелодия'],
 };
 
+const L8_NAMES: Record<CharacterClass, [string, string]> = {
+  fighter: ['Несгибаемый клинок', 'Живая крепость'],
+  rogue: ['Тень между рёбрами', 'Исчезающий шаг'],
+  wizard: ['Разлом заклинаний', 'Мантия силы'],
+  cleric: ['Свет карающий', 'Обет стойкости'],
+  ranger: ['Охотничий приговор', 'Следопыт-страж'],
+  bard: ['Разящий куплет', 'Нота спасения'],
+};
+
+const L11_NAMES: Record<CharacterClass, [string, string]> = {
+  fighter: ['Финальный натиск', 'Последний бастион'],
+  rogue: ['Идеальное лезвие', 'Неуловимый выживший'],
+  wizard: ['Фокус архимага', 'Зеркало жизни'],
+  cleric: ['Суд небес', 'Священная выдержка'],
+  ranger: ['Сердце охоты', 'Каменная тропа'],
+  bard: ['Гром аплодисментов', 'Бессмертный рефрен'],
+};
+
+function option(
+  cls: CharacterClass,
+  id: string,
+  level: number,
+  position: { x: number; y: number },
+  name: string,
+  description: string,
+  effect: TalentOption['effect'],
+  requires?: string[],
+): TalentOption {
+  return { id: `${cls}_${id}`, level, position, name, description, effect, requires };
+}
+
 function buildTree(): Record<CharacterClass, Record<number, TalentOption[]>> {
   const tree = {} as Record<CharacterClass, Record<number, TalentOption[]>>;
   for (const cls of CLASSES) {
+    const l2Off = `${cls}_l2_off`;
+    const l2Def = `${cls}_l2_def`;
+    const l5Crit = `${cls}_l5_crit`;
+    const l5Guard = `${cls}_l5_guard`;
+    const l8Burst = `${cls}_l8_burst`;
+    const l8Ward = `${cls}_l8_ward`;
     tree[cls] = {
       2: [
-        { id: `${cls}_l2_off`, name: L2_NAMES[cls][0], description: '+2 к урону, когда твоё HP ниже половины.', effect: { kind: 'damage_bonus_low_hp', amount: 2 } },
-        { id: `${cls}_l2_def`, name: L2_NAMES[cls][1], description: '−1 к получаемому урону.', effect: { kind: 'damage_reduction', amount: 1 } },
+        option(cls, 'l2_off', 2, { x: 90, y: 120 }, L2_NAMES[cls][0], '+2 к урону, когда твоё HP ниже половины.', { kind: 'damage_bonus_low_hp', amount: 2 }),
+        option(cls, 'l2_def', 2, { x: 90, y: 300 }, L2_NAMES[cls][1], '−1 к получаемому урону.', { kind: 'damage_reduction', amount: 1 }),
       ],
       5: [
-        { id: `${cls}_l5_crit`, name: L5_NAMES[cls][0], description: 'Критический удар срабатывает на 19-20.', effect: { kind: 'crit_range_expand' } },
-        { id: `${cls}_l5_heal`, name: L5_NAMES[cls][1], description: 'Восстанавливаешь 1к4 HP при убийстве врага.', effect: { kind: 'heal_on_kill' } },
+        option(cls, 'l5_crit', 5, { x: 310, y: 70 }, L5_NAMES[cls][0], 'Критический удар срабатывает на 19-20.', { kind: 'crit_range_expand' }, [l2Off]),
+        option(cls, 'l5_heal', 5, { x: 310, y: 210 }, L5_NAMES[cls][1], 'Восстанавливаешь 1к4 HP при убийстве врага.', { kind: 'heal_on_kill' }),
+        option(cls, 'l5_guard', 5, { x: 310, y: 350 }, 'Плотная защита', 'Снижаешь входящий урон ещё на 1.', { kind: 'damage_reduction', amount: 2 }, [l2Def]),
+      ],
+      8: [
+        option(cls, 'l8_burst', 8, { x: 560, y: 130 }, L8_NAMES[cls][0], '+4 к урону, когда твоё HP ниже половины.', { kind: 'damage_bonus_low_hp', amount: 4 }, [l5Crit]),
+        option(cls, 'l8_ward', 8, { x: 560, y: 300 }, L8_NAMES[cls][1], 'Входящий урон снижается на 3.', { kind: 'damage_reduction', amount: 3 }, [l5Guard]),
+      ],
+      11: [
+        option(cls, 'l11_finale', 11, { x: 800, y: 120 }, L11_NAMES[cls][0], '+6 к урону в опасном состоянии.', { kind: 'damage_bonus_low_hp', amount: 6 }, [l8Burst]),
+        option(cls, 'l11_survive', 11, { x: 800, y: 300 }, L11_NAMES[cls][1], 'Восстанавливаешь 1к4 HP за каждого добитого врага и держишь оборону лучше.', { kind: 'heal_on_kill' }, [l8Ward]),
       ],
     };
   }
@@ -55,18 +101,27 @@ export function getTalentChoices(characterClass: CharacterClass, level: number):
   return TALENT_TREE[characterClass]?.[level];
 }
 
+/** All nodes for a class, ordered by level then vertical position. */
+export function getTalentTree(characterClass: CharacterClass): TalentOption[] {
+  return Object.values(TALENT_TREE[characterClass] ?? {})
+    .flat()
+    .sort((a, b) => (a.level ?? 0) - (b.level ?? 0) || (a.position?.y ?? 0) - (b.position?.y ?? 0));
+}
+
 /**
  * Find the active talent option of a given effect kind among the hero's chosen
  * talent ids. Returns undefined when none is active (safe on missing talents).
  */
 export function getActiveTalentEffect(talents: string[] | undefined, kind: TalentEffectKind): TalentOption | undefined {
   if (!talents || talents.length === 0) return undefined;
+  let best: TalentOption | undefined;
   for (const cls of CLASSES) {
     for (const options of Object.values(TALENT_TREE[cls])) {
       for (const option of options) {
-        if (option.effect.kind === kind && talents.includes(option.id)) return option;
+        if (option.effect.kind !== kind || !talents.includes(option.id)) continue;
+        if (!best || (option.effect.amount ?? 0) > (best.effect.amount ?? 0)) best = option;
       }
     }
   }
-  return undefined;
+  return best;
 }

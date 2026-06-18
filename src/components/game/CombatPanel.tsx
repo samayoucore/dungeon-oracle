@@ -9,7 +9,7 @@ import {
   playerUseItem,
   resolveEnemyTurns,
 } from '../../engine/combat/system';
-import type { Character, Item } from '../../types';
+import type { Character, EquipmentSlots, Item } from '../../types';
 import type { AttackRoll } from '../../engine/combat/dice';
 import DiceRoller from './DiceRoller';
 import type { DiceOutcome } from './DiceRoller';
@@ -29,9 +29,12 @@ interface DiceState {
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-/** Derive the player's weapon profile from the first weapon in their pack. */
-function getWeapon(inventory: Item[], character: Character) {
-  const stats = inventory.find((i) => i.type === 'weapon' && i.weaponStats)?.weaponStats;
+/** Derive the player's weapon profile, preferring the equipped main hand. */
+function getWeapon(inventory: Item[], equipped: EquipmentSlots, character: Character) {
+  const stats =
+    equipped.mainHand?.type === 'weapon' && equipped.mainHand.weaponStats
+      ? equipped.mainHand.weaponStats
+      : inventory.find((i) => i.type === 'weapon' && i.weaponStats)?.weaponStats;
   const ability = stats?.finesse
     ? Math.max(character.modifiers.str, character.modifiers.dex)
     : character.modifiers.str;
@@ -131,7 +134,7 @@ export default function CombatPanel({ onVictory }: CombatPanelProps) {
     const target = state.combat?.enemies.find((e) => e.id === targetId);
     if (!state.character || !target || target.hp <= 0) return;
     setBusy(true);
-    const weapon = getWeapon(state.inventory, state.character);
+    const weapon = getWeapon(state.inventory, state.equipped, state.character);
     const result = playerAttack(state.character, target, weapon.damage, weapon.attackBonus);
     if (result.attackRoll) {
       const outcome = outcomeOf(result.attackRoll);
@@ -169,11 +172,19 @@ export default function CombatPanel({ onVictory }: CombatPanelProps) {
     setBusy(true);
     const state = useGameStore.getState();
     if (!state.character) return setBusy(false);
-    const result = playerFlee(state.character);
+    const result = playerFlee(state.character, state.combat?.enemies ?? []);
+    if (result.attackRoll) {
+      setDice({ sides: 20, result: result.attackRoll.d20, outcome: outcomeOf(result.attackRoll) });
+      play('dice_roll');
+      await wait(700);
+      play(result.attackRoll.isHit ? 'player_hurt' : 'attack_miss');
+    }
+    if (result.damageTaken > 0) updateHp(-result.damageTaken);
     logBoth(result.narrative);
+    setDice(null);
     await wait(500);
     if (result.combatEnded) return endCombat();
-    await afterPlayerAction();
+    setBusy(false);
   }
 
   async function doUseItem(itemId: string) {

@@ -10,9 +10,8 @@ import type { DMResponse } from './groqService';
 
 export type { ChatMessage } from '../../types';
 
-/** Keep only the last N messages (~4 user/assistant pairs). The DMResponse
- *  schema grew in Phases 7-8, so fewer pairs now carry the same token weight. */
-const MAX_MESSAGES = 8;
+/** The full state is rebuilt every turn; keep chat tail empty to save tokens. */
+const MAX_MESSAGES = 0;
 
 let history: ChatMessage[] = [];
 
@@ -35,7 +34,7 @@ export const messageHistory = {
 
   /** Restore history from a loaded save (Phase 8). */
   loadHistory(loaded: ChatMessage[]): void {
-    history = Array.isArray(loaded) ? loaded.slice(-MAX_MESSAGES) : [];
+    history = Array.isArray(loaded) && MAX_MESSAGES > 0 ? loaded.slice(-MAX_MESSAGES) : [];
   },
 
   clear(): void {
@@ -44,6 +43,10 @@ export const messageHistory = {
 };
 
 function trim(): void {
+  if (MAX_MESSAGES <= 0) {
+    history = [];
+    return;
+  }
   if (history.length > MAX_MESSAGES) {
     history = history.slice(history.length - MAX_MESSAGES);
   }

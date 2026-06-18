@@ -36,7 +36,7 @@ export default function NpcPanel() {
               here ? 'border-gold/40 bg-surface-elevated/40' : 'border-surface-elevated bg-dungeon/40'
             }`}
           >
-            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-full bg-surface-elevated">
+            <div className="h-10 w-10 shrink-0 overflow-hidden rounded-lg bg-surface-elevated">
               <Portrait seed={npc.id} roleOrClass={npc.role} size={40} />
             </div>
             <div className="min-w-0 flex-1">

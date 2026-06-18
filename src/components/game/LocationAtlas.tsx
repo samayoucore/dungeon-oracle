@@ -57,7 +57,9 @@ function AtlasCard({ loc, isCurrent, open, locations, onToggle }: AtlasCardProps
         <span className="text-lg">{LOCATION_ICON[loc.type]}</span>
         <span className="flex-1">
           <span className="block font-serif text-sm text-parchment">{loc.name}</span>
-          <span className="block text-xs capitalize text-muted">{LOCATION_LABEL[loc.type]}</span>
+          <span className="block text-xs capitalize text-muted">
+            {LOCATION_LABEL[loc.type]} · опасность {loc.dangerLevel ?? 1}
+          </span>
         </span>
         {isCurrent && <span className="shrink-0 animate-pulse rounded bg-gold/20 px-1.5 py-0.5 text-[10px] text-gold">Текущая</span>}
       </button>

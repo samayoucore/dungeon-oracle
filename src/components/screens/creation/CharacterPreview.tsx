@@ -28,8 +28,8 @@ export default function CharacterPreview({ character }: CharacterPreviewProps) {
       className="mx-auto w-full max-w-2xl rounded-xl border border-gold/40 bg-surface p-5"
     >
       <div className="flex items-center gap-3 border-b border-surface-elevated pb-3">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-elevated">
-          <Portrait seed={character.name + character.race + character.class} roleOrClass={character.class} size={56} />
+        <div className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-gold/25 bg-surface-elevated">
+          <Portrait seed={character.name + character.race + character.class} roleOrClass={character.class} race={character.race} size={64} />
         </div>
         <div>
           <div className="font-serif text-2xl text-gold">{character.name}</div>

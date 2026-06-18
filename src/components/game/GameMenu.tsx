@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X } from 'lucide-react';
+import { BookOpenText, Network, Settings, Trophy, X } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
 import { formatSaveDate, listSaves, saveGame } from '../../utils/save';
 import type { SaveSlot } from '../../types';
@@ -8,10 +8,11 @@ interface GameMenuProps {
   onClose: () => void;
   onOpenChronicle: () => void;
   onOpenAchievements: () => void;
+  onOpenTalentTree: () => void;
 }
 
 /** Pause menu: save into any of the 3 slots, resume, or quit to title. */
-export default function GameMenu({ onClose, onOpenChronicle, onOpenAchievements }: GameMenuProps) {
+export default function GameMenu({ onClose, onOpenChronicle, onOpenAchievements, onOpenTalentTree }: GameMenuProps) {
   const resetGame = useGameStore((s) => s.resetGame);
   const setScreen = useGameStore((s) => s.setScreen);
   const [slots, setSlots] = useState<(SaveSlot | null)[]>(() => listSaves());
@@ -64,14 +65,17 @@ export default function GameMenu({ onClose, onOpenChronicle, onOpenAchievements 
           <button type="button" onClick={onClose} className="rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
             Продолжить
           </button>
-          <button type="button" onClick={onOpenChronicle} className="rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
-            📜 Хроника
+          <button type="button" onClick={onOpenChronicle} className="flex items-center justify-center gap-2 rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
+            <BookOpenText className="h-4 w-4" /> Хроника
           </button>
-          <button type="button" onClick={onOpenAchievements} className="rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
-            🏆 Достижения
+          <button type="button" onClick={onOpenAchievements} className="flex items-center justify-center gap-2 rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
+            <Trophy className="h-4 w-4" /> Достижения
           </button>
-          <button type="button" onClick={() => setScreen('settings')} className="rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
-            ⚙ Настройки (ключ ИИ)
+          <button type="button" onClick={onOpenTalentTree} className="flex items-center justify-center gap-2 rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
+            <Network className="h-4 w-4" /> Дерево навыков
+          </button>
+          <button type="button" onClick={() => setScreen('settings')} className="flex items-center justify-center gap-2 rounded-md border border-surface-elevated px-4 py-2 text-parchment transition-colors hover:border-gold">
+            <Settings className="h-4 w-4" /> Настройки ИИ
           </button>
           <button type="button" onClick={handleQuit} className="rounded-md border border-danger/50 px-4 py-2 text-danger transition-colors hover:bg-danger/10">
             В главное меню

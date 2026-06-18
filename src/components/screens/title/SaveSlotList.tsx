@@ -46,7 +46,7 @@ function SaveRow({ index, slot, onLoad, onDelete }: RowProps) {
         <span className="flex flex-col gap-0.5">
           <span className="font-serif text-lg text-parchment">{slot.characterName}</span>
           <span className="text-xs text-muted">
-            {CLASS_BY_ID[slot.characterClass].name} · Ур. {slot.characterLevel} · Этаж {slot.floor}
+            {CLASS_BY_ID[slot.characterClass].name} · Ур. {slot.characterLevel} · Опасность {slot.floor}
           </span>
           <span className="text-xs text-muted/80">
             {formatSaveDate(slot.savedAt)} · {formatPlaytime(slot.playtime)}

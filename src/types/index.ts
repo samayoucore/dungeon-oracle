@@ -466,6 +466,8 @@ export interface Location {
   description: string;
   /** Free-form biome string for AI flavour. */
   biome: string;
+  /** Local threat level for this place. Old saves may omit it; fall back to GameState.depth. */
+  dangerLevel?: number;
   enemiesPresent: Enemy[];
   itemsPresent: Item[];
   npcIds: string[];
@@ -528,6 +530,12 @@ export interface TalentOption {
   name: string;
   description: string;
   effect: { kind: TalentEffectKind; amount?: number };
+  /** Character level where this node can be learned. */
+  level?: number;
+  /** Talent ids that must be learned before this node is available. */
+  requires?: string[];
+  /** Visual position inside the pannable skill tree. */
+  position?: { x: number; y: number };
 }
 
 export interface TalentChoice {
@@ -542,6 +550,15 @@ export interface DecisionLogEntry {
   description: string;
   consequence?: string;
   locationName: string;
+}
+
+/** A generated run-specific achievement. Static achievements remain global. */
+export interface DynamicAchievement {
+  id: string;
+  title: string;
+  description: string;
+  icon: string;
+  createdAtTurn: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -606,6 +623,8 @@ export interface GameState {
   unlockedAchievements: string[];
   /** Queue of achievement ids awaiting a "trophy unlocked" toast. */
   pendingAchievementToasts: string[];
+  /** Random achievements generated during this run. */
+  dynamicAchievements: DynamicAchievement[];
   /** Major story decisions logged this run (drives the decision graph). */
   decisionLog: DecisionLogEntry[];
 }
@@ -617,6 +636,7 @@ export interface SaveSlot {
   characterName: string;
   characterClass: CharacterClass;
   characterLevel: number;
+  /** Current location danger level (legacy field name kept for save compatibility). */
   floor: number;
   /** ISO timestamp. */
   savedAt: string;

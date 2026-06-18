@@ -22,6 +22,7 @@ export function createStartingLocation(): Location {
     type: 'dungeon_room',
     description,
     biome: 'crypt',
+    dangerLevel: 1,
     enemiesPresent: [],
     itemsPresent: [],
     npcIds: [],

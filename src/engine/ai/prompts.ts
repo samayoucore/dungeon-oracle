@@ -27,6 +27,7 @@ export interface GameContext {
   recentEvents: string[];
   locations: Record<string, Location>;
   currentLocationId: string;
+  /** Current location danger level. Kept as depth for save/API compatibility. */
   depth: number;
   combat: CombatState | null;
   worldFlags: WorldFlags;
@@ -57,7 +58,9 @@ function heroBlock(ctx: GameContext): string {
   const effects = c.statusEffects.length
     ? c.statusEffects.map((e) => EFFECT_RU[e.type]).join(', ')
     : 'нет';
-  const inv = ctx.inventory.length ? ctx.inventory.map((i) => i.name).join(', ') : 'пусто';
+  const inv = ctx.inventory.length
+    ? ctx.inventory.slice(-8).map((i) => `${i.name}${(i.quantity ?? 1) > 1 ? ` x${i.quantity}` : ''}`).join(', ')
+    : 'пусто';
   return [
     '━━ ГЕРОЙ ━━',
     `${c.name}, Уровень ${c.level} ${race} ${cls}`,
@@ -84,7 +87,7 @@ function locationBlock(ctx: GameContext): string {
     `"${loc.name}" (${loc.type}${loc.isSafeZone ? ', безопасная зона' : ''})`,
     loc.description,
     loc.lore ? `Известно об этом месте: ${loc.lore}` : '',
-    `Глубина: ${ctx.depth}`,
+    `Опасность места: ${loc.dangerLevel ?? ctx.depth}`,
     '',
     `Враги здесь: ${enemies}`,
     `Предметы здесь: ${items}`,
@@ -103,7 +106,7 @@ function locationBlock(ctx: GameContext): string {
 function getRelevantLocations(
   locations: Record<string, Location>,
   currentLocationId: string,
-  maxCount = 8,
+  maxCount = 3,
 ): Location[] {
   const current = locations[currentLocationId];
   if (!current) return Object.values(locations).slice(0, maxCount);
@@ -143,10 +146,11 @@ function formatQuestsForPrompt(quests: Quest[]): string {
 
 function worldBlock(ctx: GameContext): string {
   const locations = getRelevantLocations(ctx.locations, ctx.currentLocationId)
-    .map((l) => `- [${l.id}] "${l.name}" (${l.type})`)
+    .map((l) => `- [${l.id}] "${l.name}" (${l.type}, опасность ${l.dangerLevel ?? ctx.depth}${l.isSafeZone ? ', безопасно' : ''})`)
     .join('\n') || '(нет)';
 
   const npcs = Object.values(ctx.npcs)
+    .slice(-5)
     .map((npc) => {
       const mem = ctx.npcMemory[npc.id];
       const interactions = mem?.interactions ?? [];
@@ -164,7 +168,7 @@ function worldBlock(ctx: GameContext): string {
 
   const quests = formatQuestsForPrompt(ctx.quests);
 
-  const flags = Object.entries(ctx.worldFlags).slice(-15).map(([k, v]) => `- ${k}: ${v}`).join('\n') || 'нет';
+  const flags = Object.entries(ctx.worldFlags).slice(-5).map(([k, v]) => `- ${k}: ${v}`).join('\n') || 'нет';
 
   const events = ctx.recentEvents.length ? ctx.recentEvents.join('\n') : '(начало истории)';
 
@@ -188,43 +192,28 @@ function worldBlock(ctx: GameContext): string {
 }
 
 const RULES = `━━ ПРАВИЛА ━━
-
-0. ЯЗЫК: Всегда отвечай на русском. Все текстовые поля — на русском. Только ключи JSON на английском.
-1. Всегда возвращай ОДИН валидный JSON-объект по схеме ниже. Без markdown, без текста вне JSON.
-2. "narrative" обязателен — 1–3 атмосферных предложения от второго лица.
-3. Краткость. Тон тёмного фэнтези: мрачно, атмосферно, изредка чёрный юмор.
-4. ПЕРСОНАЖИ: новых именованных NPC представляй через npcIntroduced (уникальный snake_case id). Уже известных не вводи повторно — продолжай взаимодействие, используя npc_id из списка «ИЗВЕСТНЫЕ ПЕРСОНАЖИ». Если действие игрока меняет отношение персонажа — используй attitudeChange с этим npc_id (НЕ worldFlags). Суть встречи коротко отрази в narrative.
-5. ФАКТЫ МИРА: записывай через worldFlags любые важные постоянные детали (имена, обещания, секреты, слабости врагов) — это твоя память между сообщениями.
-6. ПРЕДМЕТЫ: новые находки — itemFound. Если игрок ИСПОЛЬЗУЕТ, ОТДАЁТ или ТРАТИТ предмет из инвентаря — itemsConsumed с точным названием.
-7. УРОН ВНЕ БОЯ: мелкие неприятности (царапина, ушиб, лёгкий ожог) — hpChange напрямую, не больше 10-15% от maxHp за раз. ЛЮБОЙ потенциально серьёзный урон (падение, ловушка, обрушение, удушающий газ, прыжок через провал) — НИКОГДА не применяй hpChange напрямую: вместо этого requiresRoll с подходящим статом (обычно dex для уклонения, con для выносливости) и заполни onFailHpChange — урон, который применится ТОЛЬКО при провале броска. При успехе персонаж избегает урона (опиши это в narrative после результата). Полное лечение одним hpChange — только в безопасных зонах после отдыха; иначе умеренное восстановление. Пример: «Ты прыгаешь через провал» → requiresRoll: { stat: "dex", dc: 13, description: "Прыжок через провал", onFailHpChange: -8 }. НЕ hpChange: -25 без шанса среагировать.
-8. СТАТУС-ЭФФЕКТЫ: яд из газа, благословение, проклятие — через statusEffects.add / .remove. Допустимые типы: poisoned, stunned, burning, bleeding, frightened, blinded, blessed, hasted.
-9. ПОСТОЯННЫЕ ИЗМЕНЕНИЯ ХАРАКТЕРИСТИК (statChanges): очень редко, только для значимых сюжетных моментов (проклятие алтаря, благословение). delta обычно ±1, максимум ±2. Обязательно укажи reason.
-10. КВЕСТЫ: если нарратив создаёт квестовый крючок — формализуй через newQuest. Если по сюжету уместна награда конкретным предметом (артефакт, особое оружие, ключ) — укажи его в rewards.items с name/type/description/icon/rarity; если награда только опыт и золото — оставь items пустым. Прогресс существующего квеста — ТОЛЬКО через questUpdate с questId/objectiveId, скопированными буквально из секции «АКТИВНЫЕ КВЕСТЫ» (поля quest_id и obj_id). Если нужного квеста или цели там нет — не вызывай questUpdate, лучше пропустить механику, чем выдумать несуществующий id.
-11. ПАМЯТЬ ЛОКАЦИИ: постоянные детали о текущем месте (надпись, секрет) — locationLore.
-12. ПЕРЕМЕЩЕНИЕ:
-    - Новое место → newLocation. depthDelta: 1 при спуске глубже (враги сильнее), 0 при горизонтальном перемещении (соседняя комната, город), -1 при подъёме к поверхности.
-    - Возврат в уже известное место → moveToLocation с правильным id из «ИЗВЕСТНЫЕ ЛОКАЦИИ МИРА».
-    - Локация меняется НА МЕСТЕ (стены рушатся, комната затапливается) → currentLocationUpdate.
-13. БЕЗОПАСНЫЕ ЗОНЫ: если локация безопасная и игрок отдыхает — полное восстановление HP (hpChange) и снятие статус-эффектов (statusEffects.remove).
-14. ГОРОДА И ТОРГОВЦЫ: создавая локацию type "town", населяй через npcIntroduced. Если NPC торговец — заполни shopInventory (2–5 предметов с разумными ценами).
-14a. ТОРГОВЛЯ: покупка — shopPurchase с npcId и точным itemName из «Товары на продажу» этого NPC (если золота не хватает — откажи в narrative, не выдавай предмет). Продажа — shopSale с npcId и точным itemName из инвентаря игрока (см. список инвентаря в начале промпта). Цену продажи рассчитывает код (40% от ценности) — НЕ указывай сумму сам и НЕ используй goldChange для торговли.
-15. БОЙ: комбатанты — это враги текущей локации. combatStart — сигнал «бой начинается сейчас». Внезапную угрозу из ниоткуда (засада, предательство) передавай через combatStart.ambushEnemies.
-16. КЛЮЧЕВЫЕ ПРОТИВНИКИ (mustFight): НИКОГДА не объявляй такого врага побеждённым, обманутым или устранённым без combatStart — как бы умно ни действовал игрок. Если игрок заявляет финальный удар без боя — опиши это как ПОПЫТКУ, которая проваливается в последний миг, и враг переходит в атаку (combatStart). Добавь драматизма твисту.
-17. ПРОВЕРКИ НАВЫКОВ: для действий с неопределённым исходом (взлом, прыжок, убеждение, чтение рун) — requiresRoll с подходящим статом и DC (10 = легко, 15 = средне, 20 = сложно). Затем ты получишь результат броска и опишешь последствия. НЕ запрашивай requiresRoll повторно для того же действия.
-18. На бессмысленные действия — атмосферный «ничего не происходит», без вызова механик.
-19. narrationOnly: true только если ВООБЩЕ нет механических последствий.
-20. ПОДСКАЗКИ: если уместно, предложи 2-3 коротких варианта следующего действия в suggestedActions — короткие фразы с глаголом в инфинитиве («Осмотреть алтарь», не «Осмотри алтарь»). Не на каждый ответ — только когда есть явно интересные варианты продолжения. Не повторяй один и тот же набор подряд.
-21. ВАЖНЫЕ РЕШЕНИЯ: если действие игрока — значимый сюжетный выбор с долгосрочными последствиями (пощадить или убить, предать или помочь, выбрать сторону в конфликте) — заполни majorDecision кратким описанием выбора и полем consequence, если последствие уже видно сейчас. Используй редко, несколько раз за весь забег, не на каждый ответ.`;
+Ответь только одним валидным JSON-объектом, без markdown. Все текстовые значения на русском.
+"narrative" обязателен: 1-3 ярких предложения от второго лица.
+Главный принцип: почти на любое действие игрока отвечай "да, и...". Игрок может внезапно получить предмет, золото, силу, союзника, место, телепорт, изменение тела или мира. Если заявка осмысленна внутри игры, сделай её фактом через поля JSON, а не выкручивайся отказом.
+Не балансируй числа: если игрок просит 10000 золота, укажи goldChange: 10000. Если просит здоровье навсегда, используй maxHpChange; текущее лечение - hpChange; опыт - xpGained; характеристики - statChanges.
+Перемещение: если игрок оказывается где угодно, создай newLocation. Для города, дома, таверны, поверхности и безопасного места ставь type "town"/"building_interior"/"wilderness", isSafeZone при уместности и dangerLevel: 1. Глубокие/опасные места могут иметь dangerLevel 2-20.
+Предметы: новые вещи через itemFound. Если предмет даёт урон/КБ, обязательно запиши это в weaponStats/armorStats тем же числом, что в описании. Расход предметов из инвентаря - itemsConsumed.
+NPC: новых именованных персонажей вводи через npcIntroduced; известных используй по id из списка.
+Квесты: новые крючки - newQuest; прогресс известных - questUpdate только с существующими id.
+Бой включай combatStart только если игрок сам хочет боя или сцена явно ведёт к драке. Хитрые, магические и абсурдные способы обойти врагов допустимы; clearLocationEnemies может сработать без боя.
+Проверки requiresRoll проси редко, только когда игроку явно интересен риск. Нелогичное, но осмысленное действие лучше развить, чем останавливать.
+Сохраняй важные факты через worldFlags. Предлагай suggestedActions только когда они реально полезны.`;
 
 const SCHEMA = `СХЕМА JSON (все поля, кроме narrative, опциональны; пропускай неиспользуемые):
 {
   "narrative": "string — обязательно",
   "narrationOnly": "boolean",
   "combatStart": { "ambushEnemies": [ { "name": "string", "cr": 1, "hp": 12, "ac": 13, "behavior": "aggressive", "mustFight": false, "attacks": [ { "name": "string", "attackBonus": 3, "damageDice": "1d6+1", "damageType": "slashing" } ] } ] },
-  "itemFound": { "name": "string", "type": "weapon|armor|shield|potion|artifact|quest|misc", "rarity": "common|uncommon|rare|very-rare|legendary", "value": 50, "weight": 2, "description": "string", "icon": "🗡", "weaponStats": { "damageDice": "1d8", "damageType": "slashing" }, "armorStats": { "baseAc": 12, "slot": "body" }, "potionEffect": { "effect": "heal", "diceCount": 2, "diceType": "d4", "bonus": 2 } },
+  "itemFound": { "name": "string", "type": "weapon|armor|shield|potion|artifact|quest|misc", "rarity": "common|uncommon|rare|very-rare|legendary", "value": 50, "weight": 2, "description": "string", "icon": "🗡", "weaponStats": { "damageDice": "1d8", "damageBonus": 0, "damageType": "slashing" }, "armorStats": { "baseAc": 12, "slot": "body" }, "potionEffect": { "effect": "heal", "diceCount": 2, "diceType": "d4", "bonus": 2 } },
   "itemsConsumed": ["точное название из инвентаря"],
   "goldChange": 25,
   "xpGained": 50,
+  "maxHpChange": 10,
   "hpChange": -6,
   "statusEffects": { "add": [ { "type": "poisoned", "duration": 3 } ], "remove": [ { "type": "blessed", "duration": 0 } ] },
   "statChanges": [ { "stat": "str", "delta": 1, "reason": "благословение древнего алтаря" } ],
@@ -238,19 +227,23 @@ const SCHEMA = `СХЕМА JSON (все поля, кроме narrative, опци
   "shopSale": { "npcId": "snake_case", "itemName": "точное название предмета из инвентаря игрока" },
   "locationLore": "string",
   "clearLocationEnemies": true,
-  "newLocation": { "name": "string", "type": "town|cave|crypt|corridor|library|shrine|building_interior|wilderness|boss_lair|dungeon_room|other", "description": "string", "biome": "string", "connectionLabel": "на север", "isSafeZone": false, "depthDelta": 1, "enemies": [], "items": [] },
+  "newLocation": { "name": "string", "type": "town|cave|crypt|corridor|library|shrine|building_interior|wilderness|boss_lair|dungeon_room|other", "description": "string", "biome": "string", "connectionLabel": "на север", "isSafeZone": false, "dangerLevel": 1, "depthDelta": 0, "enemies": [], "items": [] },
   "moveToLocation": { "locationId": "id из списка известных локаций", "connectionLabel": "обратно" },
   "currentLocationUpdate": { "name": "string", "description": "string", "type": "cave" },
   "suggestedActions": ["Осмотреть алтарь", "Поговорить со стражником"],
   "majorDecision": { "description": "string", "consequence": "string" }
 }`;
 
-const HEADER = `Ты — Мастер Подземелья тёмной фэнтезийной RPG. Твоя роль: рассказывать историю, реагировать на ЛЮБЫЕ действия игрока и АКТИВНО УПРАВЛЯТЬ состоянием игры через структурированные поля ответа — мир существует только через твои решения.`;
+const HEADER = `Ты — Мастер Подземелья тёмной фэнтезийной sandbox-RPG. Мир подчиняется фантазии игрока: реагируй на любые осмысленные заявки и меняй состояние игры через JSON.`;
+
+const PHILOSOPHY = `ФИЛОСОФИЯ: отвечай «да, и...» на странные идеи; заявленные игроком числа применяются почти буквально; отказы и проверки — редкое исключение, а не стиль игры.`;
 
 /** Build the full system prompt from the current game state. */
 export function buildSystemPrompt(ctx: GameContext): string {
   return [
     HEADER,
+    '',
+    PHILOSOPHY,
     '',
     heroBlock(ctx),
     '',
@@ -273,7 +266,7 @@ export function buildSummarizationPrompt(
   recentNarrative: string[],
 ): string {
   const flags = Object.entries(worldFlags).map(([k, v]) => `${k}: ${v}`).join(', ') || 'нет';
-  return `Сожми историю приключения в краткую сводку (4-6 предложений на русском). Сохрани: ключевые решения игрока, важные обещания и отношения с персонажами, открытые угрозы, текущую цель пути. Опусти описания локаций и детали боёв — важен только сюжетный смысл.
+  return `Сожми историю приключения в краткую сводку (3-4 предложения на русском). Сохрани только решения игрока, обещания, отношения, угрозы и текущую цель.
 
 ПРЕДЫДУЩАЯ СВОДКА:
 ${storySummary || '(начало приключения)'}

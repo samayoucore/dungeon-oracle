@@ -16,6 +16,7 @@ import type {
   Item,
   ItemRarity,
   ItemType,
+  LocationType,
   PotionEffect,
   Stats,
   WeaponStats,
@@ -50,6 +51,7 @@ export interface RawEnemy {
 
 export interface RawWeaponStats {
   damageDice?: string;
+  damageBonus?: number;
   damageType?: string;
   finesse?: boolean;
   twoHanded?: boolean;
@@ -80,8 +82,9 @@ export interface RawItem {
 // Primitives
 // ---------------------------------------------------------------------------
 
-/** Matches "1d6", "10d100", "2d8+3" — count(1-2 digits) d sides(1-3) +bonus(1-2). */
-const DICE_REGEX = /^(\d{1,2})d(\d{1,3})(?:\+(\d{1,2}))?$/;
+/** Matches "1d6", "10d100", "2d8+3" or "1к8 + 9". */
+const DICE_REGEX = /^(\d{1,3})[dк](\d{1,4})(?:([+-])(\d{1,7}))?$/i;
+const DICE_IN_TEXT_REGEX = /(\d{1,3})\s*[dк]\s*(\d{1,4})(?:\s*([+-])\s*(\d{1,7}))?/i;
 
 const VALID_DICE: DiceType[] = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100'];
 const DAMAGE_TYPES = new Set<DamageType>([
@@ -94,6 +97,18 @@ const RARITIES = new Set<ItemRarity>(['common', 'uncommon', 'rare', 'very-rare',
 export function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+const STORY_NUMBER_LIMIT = 999_999_999;
+
+/** Keep player/AI-declared numbers exact unless they would break JS/game math. */
+export function sanitizeStoryNumber(value: number, fallback = 0, limit = STORY_NUMBER_LIMIT): number {
+  if (!Number.isFinite(value)) return fallback;
+  return Math.round(clamp(value, -limit, limit));
+}
+
+export function sanitizePositiveStoryNumber(value: number, fallback = 0, limit = STORY_NUMBER_LIMIT): number {
+  return Math.max(0, sanitizeStoryNumber(value, fallback, limit));
 }
 
 // ---------------------------------------------------------------------------
@@ -115,29 +130,41 @@ const ENEMY_HP_MULT: Record<Difficulty, number> = { easy: 0.8, normal: 1.0, hard
 const LOOT_VALUE_MULT: Record<Difficulty, number> = { easy: 1.1, normal: 1.0, hardcore: 1.0 };
 
 // ---------------------------------------------------------------------------
-// Reward clamps (Phase 8) — keep AI-granted gold/xp level-appropriate.
+// Reward guards — protect math without overriding sandbox-style player wishes.
 // ---------------------------------------------------------------------------
 
 export function clampGoldChange(value: number, depth: number): number {
-  const max = clamp(depth * 15 + 10, 10, 500);
-  return clamp(value, -max, max);
+  void depth;
+  return sanitizeStoryNumber(value);
 }
 
 export function clampXpGain(value: number, level: number): number {
-  const max = clamp(level * 30 + 20, 20, 400);
-  return clamp(value, 0, max);
+  void level;
+  return sanitizePositiveStoryNumber(value);
 }
 
 /**
- * Clamp out-of-combat HP changes (Phase 10). Direct narrative damage is capped
- * at ~15% of maxHp (min 3) so "you fall and take -500" can't one-shot the hero —
- * serious harm must go through requiresRoll/onFailHpChange. Healing is likewise
- * capped at 50% of maxHp per beat (full heals only in safe-zone rests).
+ * Keep HP deltas numerically sane. updateHp still clamps current HP to [0, maxHp].
  */
 export function clampNarrativeHp(value: number, maxHp: number): number {
-  if (value >= 0) return Math.min(value, Math.round(maxHp * 0.5));
-  const minAllowed = -Math.max(3, Math.round(maxHp * 0.15));
-  return Math.max(value, minAllowed);
+  void maxHp;
+  return sanitizeStoryNumber(value, 0, 1_000_000);
+}
+
+export function dangerLevelForLocation(
+  type: LocationType,
+  isSafeZone: boolean | undefined,
+  previousDanger: number,
+  depthDelta?: number,
+  explicitDanger?: number,
+): number {
+  if (typeof explicitDanger === 'number' && Number.isFinite(explicitDanger)) {
+    return Math.round(clamp(explicitDanger, 1, 20));
+  }
+  if (isSafeZone || type === 'town' || type === 'building_interior') return 1;
+  const delta = typeof depthDelta === 'number' && Number.isFinite(depthDelta) ? depthDelta : 0;
+  const base = clamp(previousDanger, 1, 20);
+  return Math.round(clamp(base + delta, 1, 20));
 }
 
 /** Snap an arbitrary number of sides to the nearest legal die. */
@@ -153,16 +180,90 @@ interface ParsedDice {
   damageBonus: number;
 }
 
+function normalizeDiceText(input: string): string {
+  return input.trim().toLowerCase().replace(/\s+/g, '');
+}
+
 /** Parse a dice string into the engine's {count, dice, bonus} shape, or null. */
 function parseDice(input: string | undefined): ParsedDice | null {
   if (!input) return null;
-  const match = DICE_REGEX.exec(input.trim());
+  const match = DICE_REGEX.exec(normalizeDiceText(input));
   if (!match) return null;
-  const count = clamp(parseInt(match[1], 10), 1, 12);
-  const sides = clamp(parseInt(match[2], 10), 4, 100);
-  const bonus = match[3] ? clamp(parseInt(match[3], 10), 0, 20) : 0;
+  const count = clamp(parseInt(match[1], 10), 1, 100);
+  const sides = clamp(parseInt(match[2], 10), 4, 1000);
+  const rawBonus = match[4] ? parseInt(match[4], 10) : 0;
+  const bonus = clamp(match[3] === '-' ? -rawBonus : rawBonus, -1_000_000, 1_000_000);
   const die = VALID_DICE.includes(`d${sides}` as DiceType) ? (`d${sides}` as DiceType) : nearestDie(sides);
   return { damageCount: count, damageDice: die, damageBonus: bonus };
+}
+
+function parseDiceFromText(text: string): ParsedDice | null {
+  const match = DICE_IN_TEXT_REGEX.exec(text);
+  if (!match) return null;
+  return parseDice(`${match[1]}d${match[2]}${match[3] ?? ''}${match[4] ?? ''}`);
+}
+
+function storyNumbers(text: string): number[] {
+  const matches = text.match(/-?\d[\d _]*/g);
+  if (!matches) return [];
+  return matches
+    .map((raw) => Number(raw.replace(/[ _]/g, '')))
+    .filter(Number.isFinite);
+}
+
+function largestPositiveNumber(text: string, limit = 1_000_000): number | null {
+  const values = storyNumbers(text).filter((n) => n > 0).map((n) => sanitizePositiveStoryNumber(n, 0, limit));
+  if (values.length === 0) return null;
+  return values.reduce((best, value) => (value > best ? value : best), values[0]);
+}
+
+function flatDamageToDice(value: number): ParsedDice {
+  const exact = sanitizePositiveStoryNumber(value, 1, 1_000_000);
+  // The combat roller adds dice + bonus. This keeps a requested "10000 damage"
+  // as a real huge hit instead of shrinking it to a level-scaled weapon.
+  return { damageCount: 1, damageDice: 'd4', damageBonus: Math.max(0, exact - 1) };
+}
+
+function damageCeiling(dice: ParsedDice): number {
+  return dice.damageCount * parseInt(dice.damageDice.slice(1), 10) + dice.damageBonus;
+}
+
+function inferDamageDiceFromText(text: string, rarity: ItemRarity): ParsedDice | null {
+  const explicitDice = parseDiceFromText(text);
+  if (explicitDice) return explicitDice;
+
+  const lower = text.toLowerCase();
+  const damageWordNearNumber =
+    /(?:урон|урона|уроном|damage|dmg)[^\d-]{0,28}(-?\d[\d _]*)/i.exec(lower)?.[1] ??
+    /(-?\d[\d _]*)[^\d]{0,28}(?:урон|урона|уроном|damage|dmg)/i.exec(lower)?.[1];
+  if (damageWordNearNumber) {
+    const flat = Number(damageWordNearNumber.replace(/[ _]/g, ''));
+    if (Number.isFinite(flat) && flat > 0) return flatDamageToDice(flat);
+  }
+
+  const largest = largestPositiveNumber(text);
+  if (largest && /меч|клин|топор|молот|лук|арбалет|посох|копь|кинжал|weapon|sword|damage/i.test(lower)) {
+    return flatDamageToDice(largest);
+  }
+
+  if (rarity === 'legendary') return { damageCount: 3, damageDice: 'd100', damageBonus: 50 };
+  if (rarity === 'very-rare') return { damageCount: 2, damageDice: 'd100', damageBonus: 20 };
+  if (rarity === 'rare') return { damageCount: 2, damageDice: 'd20', damageBonus: 8 };
+  return null;
+}
+
+function inferArmorAcFromText(text: string, type: ItemType): number | null {
+  const lower = text.toLowerCase();
+  const acWordNearNumber =
+    /(?:кб|класс брони|броня|защита|ac|armor)[^\d-]{0,28}(-?\d[\d _]*)/i.exec(lower)?.[1] ??
+    /(-?\d[\d _]*)[^\d]{0,28}(?:кб|класс брони|брони|защиты|ac|armor)/i.exec(lower)?.[1];
+  if (acWordNearNumber) {
+    const value = Number(acWordNearNumber.replace(/[ _]/g, ''));
+    if (Number.isFinite(value) && value > 0) return sanitizePositiveStoryNumber(value, type === 'shield' ? 2 : 11, 1_000_000);
+  }
+  const largest = largestPositiveNumber(text);
+  if (largest && /брон|доспех|щит|защит|кб|armor|shield|ac/i.test(lower)) return largest;
+  return null;
 }
 
 function asDamageType(value: string | undefined, fallback: DamageType): DamageType {
@@ -194,13 +295,18 @@ export function defaultStatsForCR(cr: number): Stats {
 
 const BOSS_KEYWORDS = ['босс', 'лорд', 'король', 'королева', 'древн', 'повелител', 'страж', 'хранител', 'владык'];
 
+/** A boss-ish name only forces mustFight once the enemy is actually strong —
+ *  a flavourful "древний скелет" at low CR stays a mundane, avoidable foe.
+ *  Tune this to recalibrate keyword-triggered mustFight after playtesting. */
+const KEYWORD_MIN_CR = 1.5;
+
 function clampAttacks(raw: RawAttack[] | undefined, depth: number): EnemyAttack[] {
-  const maxToHit = Math.floor(depth) + 5;
+  void depth;
   const attacks: EnemyAttack[] = (raw ?? []).map((a) => {
     const dice = parseDice(a.damageDice) ?? parseDice(a.damage) ?? { damageCount: 1, damageDice: 'd6' as DiceType, damageBonus: 0 };
     return {
       name: a.name ?? 'Удар',
-      toHitBonus: clamp(a.attackBonus ?? a.toHitBonus ?? 2, 0, maxToHit),
+      toHitBonus: clamp(a.attackBonus ?? a.toHitBonus ?? 2, -20, 999),
       damageCount: dice.damageCount,
       damageDice: dice.damageDice,
       damageBonus: dice.damageBonus,
@@ -216,13 +322,16 @@ function clampAttacks(raw: RawAttack[] | undefined, depth: number): EnemyAttack[
 /** Build a safe Enemy from arbitrary AI output, scaled to the current depth. */
 export function clampGeneratedEnemy(raw: RawEnemy, depth: number): Enemy {
   const d = clamp(depth, 1, 20);
-  const cr = clamp(raw.cr ?? d * 0.5, d * 0.4, d * 1.5 + 0.5);
+  const cr = clamp(raw.cr ?? d * 0.5, 0, 100);
   const baseHp = Math.round(cr * 12 + 5);
-  const hp = Math.round(clamp(raw.hp ?? baseHp, baseHp * 0.6, baseHp * 1.6) * ENEMY_HP_MULT[getDifficulty()]);
-  const ac = Math.round(clamp(raw.ac ?? 12, 8, 20));
+  const hp = Math.max(1, Math.round(clamp(raw.hp ?? baseHp, 1, 1_000_000) * ENEMY_HP_MULT[getDifficulty()]));
+  const ac = Math.round(clamp(raw.ac ?? 12, 1, 200));
 
   const nameLower = (raw.name ?? '').toLowerCase();
-  const mustFight = raw.mustFight === true || cr >= 4 || BOSS_KEYWORDS.some((kw) => nameLower.includes(kw));
+  const mustFight =
+    raw.mustFight === true ||
+    cr >= 4 ||
+    (cr >= KEYWORD_MIN_CR && BOSS_KEYWORDS.some((kw) => nameLower.includes(kw)));
   const behavior: EnemyBehavior = raw.behavior && BEHAVIORS.has(raw.behavior as EnemyBehavior)
     ? (raw.behavior as EnemyBehavior)
     : 'aggressive';
@@ -257,27 +366,49 @@ const RARITY_VALUE_RANGE: Record<ItemRarity, [number, number]> = {
   legendary: [5000, 20000],
 };
 
-function clampWeapon(raw: RawWeaponStats | undefined): WeaponStats | undefined {
-  if (!raw) return undefined;
-  const dice = parseDice(raw.damageDice) ?? { damageCount: 1, damageDice: 'd6' as DiceType, damageBonus: 0 };
+function inferItemType(raw: RawItem): ItemType {
+  const text = `${raw.name ?? ''} ${raw.description ?? ''}`.toLowerCase();
+  if (/меч|клин|топор|молот|лук|арбалет|посох|копь|кинжал|weapon|sword|bow|staff/.test(text)) return 'weapon';
+  if (/щит|shield/.test(text)) return 'shield';
+  if (/брон|доспех|кольчуг|armor|mail|plate/.test(text)) return 'armor';
+  if (/зель|эликсир|potion/.test(text)) return 'potion';
+  if (/артефакт|реликв|artifact|relic/.test(text)) return 'artifact';
+  if (raw.type && ITEM_TYPES.has(raw.type)) return raw.type;
+  return 'misc';
+}
+
+function clampWeapon(raw: RawWeaponStats | undefined, type: ItemType, text: string, rarity: ItemRarity): WeaponStats | undefined {
+  if (!raw && type !== 'weapon') return undefined;
+  const rawDice = parseDice(raw?.damageDice);
+  const inferredDice = inferDamageDiceFromText(text, rarity);
+  const dice =
+    rawDice && inferredDice
+      ? damageCeiling(inferredDice) > damageCeiling(rawDice)
+        ? inferredDice
+        : rawDice
+      : rawDice ?? inferredDice ?? { damageCount: 1, damageDice: 'd6' as DiceType, damageBonus: 0 };
+  const damageBonus = dice.damageBonus + sanitizeStoryNumber(raw?.damageBonus ?? 0, 0, 1_000_000);
   return {
     damageDice: dice.damageDice,
     damageCount: dice.damageCount,
-    damageBonus: dice.damageBonus,
-    damageType: asDamageType(raw.damageType, 'slashing'),
-    finesse: raw.finesse === true || undefined,
-    twoHanded: raw.twoHanded === true || undefined,
-    ranged: raw.ranged === true || undefined,
+    damageBonus,
+    damageType: asDamageType(raw?.damageType, 'slashing'),
+    finesse: raw?.finesse === true || undefined,
+    twoHanded: raw?.twoHanded === true || undefined,
+    ranged: raw?.ranged === true || undefined,
   };
 }
 
-function clampArmor(raw: RawArmorStats | undefined, type: ItemType): ArmorStats | undefined {
-  if (!raw) return undefined;
-  const slot: EquipmentSlot = raw.slot ?? (type === 'shield' ? 'offHand' : 'body');
+function clampArmor(raw: RawArmorStats | undefined, type: ItemType, text: string): ArmorStats | undefined {
+  if (!raw && type !== 'armor' && type !== 'shield') return undefined;
+  const slot: EquipmentSlot = raw?.slot ?? (type === 'shield' ? 'offHand' : 'body');
   const fallback = type === 'shield' ? 2 : 11;
-  const baseAc = Math.round(clamp(raw.baseAc ?? raw.acBonus ?? fallback, 1, 20));
+  const inferredAc = inferArmorAcFromText(text, type);
+  const explicitAc = raw?.baseAc ?? raw?.acBonus;
+  const requestedAc = explicitAc && inferredAc ? Math.max(explicitAc, inferredAc) : explicitAc ?? inferredAc ?? fallback;
+  const baseAc = Math.round(clamp(requestedAc, 1, 1_000_000));
   const armor: ArmorStats = { baseAc, slot };
-  if (typeof raw.maxDexBonus === 'number') armor.maxDexBonus = Math.round(clamp(raw.maxDexBonus, 0, 10));
+  if (typeof raw?.maxDexBonus === 'number') armor.maxDexBonus = Math.round(clamp(raw.maxDexBonus, 0, 999));
   return armor;
 }
 
@@ -287,11 +418,13 @@ function clampArmor(raw: RawArmorStats | undefined, type: ItemType): ArmorStats 
  * false for shop stock, starting gear and equipment.
  */
 export function clampGeneratedItem(raw: RawItem, isLoot = false): Item {
-  const type: ItemType = raw.type && ITEM_TYPES.has(raw.type) ? raw.type : 'misc';
+  const type: ItemType = inferItemType(raw);
   const rarity: ItemRarity = raw.rarity && RARITIES.has(raw.rarity) ? raw.rarity : 'common';
   const [lo, hi] = RARITY_VALUE_RANGE[rarity];
-  const baseValue = Math.round(clamp(raw.value ?? lo, lo, hi));
+  void hi;
+  const baseValue = typeof raw.value === 'number' ? sanitizePositiveStoryNumber(raw.value) : lo;
   const value = isLoot ? Math.round(baseValue * LOOT_VALUE_MULT[getDifficulty()]) : baseValue;
+  const text = `${raw.name ?? ''} ${raw.description ?? ''}`;
 
   return {
     id: crypto.randomUUID(),
@@ -299,11 +432,11 @@ export function clampGeneratedItem(raw: RawItem, isLoot = false): Item {
     type,
     rarity,
     value,
-    weight: clamp(raw.weight ?? 1, 0.1, 50),
+    weight: clamp(raw.weight ?? 1, 0, 5000),
     description: raw.description ?? '',
     icon: raw.icon || '❓',
-    weaponStats: clampWeapon(raw.weaponStats),
-    armorStats: clampArmor(raw.armorStats, type),
+    weaponStats: clampWeapon(raw.weaponStats, type, text, rarity),
+    armorStats: clampArmor(raw.armorStats, type, text),
     potionEffect: raw.potionEffect,
   };
 }

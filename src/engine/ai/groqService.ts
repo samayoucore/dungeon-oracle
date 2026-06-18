@@ -37,6 +37,7 @@ export interface DMResponse {
   xpGained?: number | null;
 
   // --- Out-of-combat character state ---
+  maxHpChange?: number | null;
   hpChange?: number | null;
   statusEffects?: { add?: StatusEffect[]; remove?: StatusEffect[] } | null;
   statChanges?: { stat: keyof Stats; delta: number; reason: string }[] | null;
@@ -79,6 +80,7 @@ export interface DMResponse {
     biome: string;
     connectionLabel: string;
     isSafeZone?: boolean;
+    dangerLevel?: number;
     enemies?: RawEnemy[];
     items?: RawItem[];
     depthDelta?: number;
@@ -95,14 +97,17 @@ export interface DMResponse {
 // Errors
 // ---------------------------------------------------------------------------
 
-export type GroqErrorCode = 'no-key' | 'http' | 'network' | 'parse';
+export type GroqErrorCode = 'no-key' | 'http' | 'network' | 'parse' | 'model' | 'rate-limit';
 
 export class GroqError extends Error {
   code: GroqErrorCode;
-  constructor(code: GroqErrorCode, message: string) {
+  /** Raw Groq response body, when available (logged to the console for diagnosis). */
+  body?: string;
+  constructor(code: GroqErrorCode, message: string, body?: string) {
     super(message);
     this.name = 'GroqError';
     this.code = code;
+    this.body = body;
   }
 }
 
@@ -123,7 +128,7 @@ interface GroqCompletion {
   choices?: GroqChoice[];
 }
 
-async function request(messages: { role: string; content: string }[]): Promise<DMResponse> {
+async function request(messages: { role: string; content: string }[], maxTokens = 700): Promise<DMResponse> {
   const apiKey = getApiKey();
   if (!apiKey) throw new GroqError('no-key', 'Groq API key is not set.');
 
@@ -138,7 +143,7 @@ async function request(messages: { role: string; content: string }[]): Promise<D
       body: JSON.stringify({
         model: getModel(),
         temperature: 0.85,
-        max_tokens: 1200,
+        max_tokens: maxTokens,
         response_format: { type: 'json_object' },
         messages,
       }),
@@ -149,7 +154,15 @@ async function request(messages: { role: string; content: string }[]): Promise<D
 
   if (!res.ok) {
     const body = await res.text().catch(() => '');
-    throw new GroqError('http', `Groq HTTP ${res.status}: ${body.slice(0, 300)}`);
+    const lower = body.toLowerCase();
+    // A 400 about a decommissioned/invalid model is a distinct, actionable case.
+    if (res.status === 400 && (lower.includes('decommissioned') || lower.includes('invalid_request_error') || lower.includes('model_not_found') || lower.includes('does not exist'))) {
+      throw new GroqError('model', `Groq ${res.status} (model error): ${body.slice(0, 500)}`, body);
+    }
+    if (res.status === 429 || lower.includes('rate_limit_exceeded')) {
+      throw new GroqError('rate-limit', `Groq rate limit: ${body.slice(0, 500)}`, body);
+    }
+    throw new GroqError('http', `Groq HTTP ${res.status}: ${body.slice(0, 500)}`, body);
   }
 
   const data = (await res.json()) as GroqCompletion;
@@ -215,7 +228,7 @@ export const groqService = {
       ...history,
       { role: 'user', content: buildRollOutcomeMessage(description, stat, dc, total, success) },
     ];
-    const response = await request(messages);
+    const response = await request(messages, 550);
     // A roll outcome must not re-open another check for the same action.
     if (response.requiresRoll) {
       console.warn('[groqService] Ignoring requiresRoll returned from a roll outcome.');
@@ -238,7 +251,7 @@ export const groqService = {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: SUMMARY_MODEL,
-          max_tokens: 220,
+          max_tokens: 140,
           temperature: 0.5,
           messages: [{ role: 'user', content: prompt }],
         }),

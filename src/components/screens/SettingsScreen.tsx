@@ -130,6 +130,9 @@ export default function SettingsScreen() {
           <p className="mt-2 text-xs text-muted">
             {apiKey.trim() ? '✓ Ключ сохранён' : '⚠ Без ключа Мастер Подземелий не сможет вести историю.'}
           </p>
+          <p className="mt-1 text-xs text-muted">
+            Для длинной партии выбирай llama-3.1-8b-instant: она заметно экономнее по дневному лимиту Groq.
+          </p>
         </div>
       </div>
 

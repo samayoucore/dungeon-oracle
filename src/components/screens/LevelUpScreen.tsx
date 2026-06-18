@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import type { LevelUpInfo } from '../../types';
 import { useSound } from '../../hooks/useSound';
 import { useGameStore } from '../../store/gameStore';
+import TalentTree from '../character/TalentTree';
 
 interface LevelUpScreenProps {
   info: LevelUpInfo;
@@ -36,6 +37,7 @@ export default function LevelUpScreen({ info, onClose }: LevelUpScreenProps) {
   const { play } = useSound();
   const pendingTalentChoices = useGameStore((s) => s.pendingTalentChoices);
   const chooseTalent = useGameStore((s) => s.chooseTalent);
+  const character = useGameStore((s) => s.character);
   const talentChoice = pendingTalentChoices.find((t) => t.level === info.newLevel);
   useEffect(() => {
     play('level_up');
@@ -47,7 +49,7 @@ export default function LevelUpScreen({ info, onClose }: LevelUpScreenProps) {
         initial={{ scale: 0.85, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         transition={{ duration: 0.4 }}
-        className="relative w-full max-w-md overflow-hidden rounded-xl border border-gold/40 bg-surface p-6 text-center"
+        className="relative w-full max-w-4xl overflow-hidden rounded-xl border border-gold/40 bg-surface p-6 text-center"
       >
         <div className="pointer-events-none absolute left-1/2 top-16">
           {particles.map((p) => (
@@ -89,21 +91,18 @@ export default function LevelUpScreen({ info, onClose }: LevelUpScreenProps) {
         )}
 
         {talentChoice && (
-          <div className="relative mb-4">
+          <div className="relative mb-4 text-left">
             <div className="mb-2 text-sm font-semibold text-gold">Выбери талант:</div>
-            <div className="grid grid-cols-2 gap-2">
-              {talentChoice.options.map((opt) => (
-                <button
-                  key={opt.id}
-                  type="button"
-                  onClick={() => chooseTalent(talentChoice.level, opt.id)}
-                  className="rounded-md border border-gold/30 bg-dungeon/40 p-3 text-left transition-colors hover:border-gold"
-                >
-                  <div className="font-serif text-sm text-parchment">{opt.name}</div>
-                  <div className="mt-1 text-xs text-muted">{opt.description}</div>
-                </button>
-              ))}
-            </div>
+            {character && (
+              <TalentTree
+                characterClass={character.class}
+                selectedTalentIds={character.talents}
+                currentLevel={info.newLevel}
+                pendingOptions={talentChoice.options}
+                onChoose={(talentId) => chooseTalent(talentChoice.level, talentId)}
+                height={330}
+              />
+            )}
           </div>
         )}
 

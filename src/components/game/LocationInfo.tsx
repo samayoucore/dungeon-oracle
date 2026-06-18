@@ -20,6 +20,7 @@ export default function LocationInfo({ location }: LocationInfoProps) {
         </div>
       </div>
 
+      <p className="text-sm text-muted">Опасность: <span className="text-parchment">{location.dangerLevel ?? 1}</span></p>
       {location.isSafeZone && <p className="text-sm text-green-400">🛡 Безопасная зона</p>}
       {living.length > 0 && <p className="text-sm text-danger">⚔ Противников рядом: {living.length}</p>}
       {itemCount > 0 && <p className="text-sm text-gold">📦 Предметов: {itemCount}</p>}

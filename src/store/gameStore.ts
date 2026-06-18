@@ -3,6 +3,7 @@ import { immer } from 'zustand/middleware/immer';
 import type {
   Character,
   CombatState,
+  DynamicAchievement,
   Enemy,
   EquipmentSlot,
   EquipmentSlots,
@@ -38,6 +39,8 @@ import {
   clampGoldChange,
   clampNarrativeHp,
   clampXpGain,
+  dangerLevelForLocation,
+  sanitizeStoryNumber,
 } from '../engine/world/validation';
 import { createStartingLocation } from '../engine/world/bootstrap';
 import { findExistingLocationByName, findExistingNpcByName } from '../engine/world/dedupe';
@@ -77,6 +80,12 @@ function createStats(): GameStats {
   return { turnsPlayed: 0, enemiesKilled: 0, goldFound: 0, roomsExplored: 0, deathCount: 0, questsCompleted: 0 };
 }
 
+function locationDanger(location: Location | null | undefined, fallback: number): number {
+  if (!location) return clamp(fallback, 1, 20);
+  if (typeof location.dangerLevel === 'number') return clamp(location.dangerLevel, 1, 20);
+  return dangerLevelForLocation(location.type, location.isSafeZone, fallback);
+}
+
 /** Fresh, character-less game state used on boot and reset. */
 function createInitialState(): GameState {
   return {
@@ -106,6 +115,7 @@ function createInitialState(): GameState {
     lastSuggestedActions: [],
     unlockedAchievements: [],
     pendingAchievementToasts: [],
+    dynamicAchievements: [],
     decisionLog: [],
   };
 }
@@ -124,6 +134,59 @@ function unlockAchievement(s: GameState, id: string): void {
   }
   s.unlockedAchievements.push(id);
   s.pendingAchievementToasts.push(id);
+}
+
+const DYNAMIC_ACHIEVEMENT_PARTS: Record<string, { icons: string[]; titles: string[]; descriptions: string[] }> = {
+  wealth: {
+    icons: ['Coins', 'Gem', 'Sparkles'],
+    titles: ['Золотой вихрь', 'Кошелёк судьбы', 'Неприличная удача'],
+    descriptions: ['Ты резко изменил своё богатство: {detail}.', 'Казна мира заметила твой ход: {detail}.'],
+  },
+  item: {
+    icons: ['Sword', 'Shield', 'Sparkles'],
+    titles: ['Вещь из невозможного', 'Кузня желания', 'Артефакт на ходу'],
+    descriptions: ['Ты получил предмет, который появился по твоей воле: {detail}.', 'Реальность выдала тебе новую силу: {detail}.'],
+  },
+  travel: {
+    icons: ['Map', 'MapPin', 'Sparkles'],
+    titles: ['Поворот без дороги', 'Прыжок по карте', 'Новый горизонт'],
+    descriptions: ['Ты оказался там, где решил оказаться: {detail}.', 'Мир расширился новым местом: {detail}.'],
+  },
+  power: {
+    icons: ['Zap', 'Sparkles', 'Award'],
+    titles: ['Скачок силы', 'Переписанный герой', 'Новая грань'],
+    descriptions: ['Характеристики героя изменились необычно резко: {detail}.', 'Герой стал другим после твоего решения: {detail}.'],
+  },
+  escape: {
+    icons: ['Wind', 'Shield', 'Zap'],
+    titles: ['Уход на вдохе', 'Шаг сквозь опасность', 'Пятки против клинка'],
+    descriptions: ['Ты вырвался из опасной сцены: {detail}.', 'Побег стал отдельной историей: {detail}.'],
+  },
+};
+
+function randomOf<T>(items: readonly T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
+}
+
+function unlockDynamicAchievement(s: GameState, kind: keyof typeof DYNAMIC_ACHIEVEMENT_PARTS, detail: string): void {
+  const parts = DYNAMIC_ACHIEVEMENT_PARTS[kind];
+  const id = `dyn_${kind}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`;
+  const achievement: DynamicAchievement = {
+    id,
+    title: randomOf(parts.titles),
+    description: randomOf(parts.descriptions).replace('{detail}', detail),
+    icon: randomOf(parts.icons),
+    createdAtTurn: s.gameStats.turnsPlayed,
+  };
+  s.dynamicAchievements.push(achievement);
+  s.pendingAchievementToasts.push(id);
+}
+
+function maybeUnlockDynamicAchievement(s: GameState, kind: keyof typeof DYNAMIC_ACHIEVEMENT_PARTS, detail: string, gate: string): void {
+  const key = `dynamic_achievement_${gate}`;
+  if (s.worldFlags[key]) return;
+  s.worldFlags[key] = true;
+  unlockDynamicAchievement(s, kind, detail);
 }
 
 /**
@@ -154,6 +217,7 @@ export interface GameActions {
   resetGame: () => void;
   addNarrative: (text: string, type?: NarrativeType) => void;
   clearNarrative: () => void;
+  updateMaxHp: (delta: number) => void;
   updateHp: (delta: number) => void;
   addXp: (amount: number) => void;
   addGold: (amount: number) => void;
@@ -232,14 +296,15 @@ export const useGameStore = create<GameStore>()(
     function buildContext(): GameContext | null {
       const s = get();
       if (!s.character || !s.currentLocationId) return null;
+      const loc = s.locations[s.currentLocationId];
       return {
         character: s.character,
         inventory: s.inventory,
         quests: s.quests,
-        recentEvents: s.narrativeLog.slice(-5).map((e) => e.text),
+        recentEvents: s.narrativeLog.slice(-2).map((e) => e.text),
         locations: s.locations,
         currentLocationId: s.currentLocationId,
-        depth: s.depth,
+        depth: locationDanger(loc, s.depth),
         combat: s.combat,
         worldFlags: s.worldFlags,
         npcs: s.npcs,
@@ -248,14 +313,14 @@ export const useGameStore = create<GameStore>()(
       };
     }
 
-    /** Every 15 turns, compress the story in the background (fire-and-forget). */
+    /** Occasionally compress the story in the background (fire-and-forget). */
     function maybeSummarize(): void {
       const s = get();
       const turns = s.gameStats.turnsPlayed;
-      if (turns <= 0 || turns % 15 !== 0 || turns <= s.summarizedUpToTurn) return;
+      if (turns <= 0 || turns % 25 !== 0 || turns <= s.summarizedUpToTurn) return;
       const recentTexts = s.narrativeLog
         .filter((e) => e.type === 'narration' || e.type === 'action' || e.type === 'system')
-        .slice(-30)
+        .slice(-18)
         .map((e) => e.text);
       const prompt = buildSummarizationPrompt(s.storySummary, s.worldFlags, recentTexts);
       void groqService.summarizeStory(prompt).then((summary) => {
@@ -276,13 +341,223 @@ export const useGameStore = create<GameStore>()(
       s.setCombat(initCombat(living, s.character));
     }
 
-    function handleAiError(err: unknown): void {
-      if (err instanceof GroqError && err.code === 'no-key') {
-        get().addNarrative('⚠ Ключ Groq не задан. Открой Настройки и введи ключ.', 'system');
-      } else {
-        console.error('[DM] request failed', err);
-        get().addNarrative('⚠ Мастер Подземелий не отвечает (ошибка связи). Проверь ключ ИИ и доступ к Groq.', 'system');
+    function largestNumber(text: string): number | null {
+      const matches = text.match(/-?\d[\d _]*/g);
+      if (!matches) return null;
+      const values = matches
+        .map((raw) => Number(raw.replace(/[ _]/g, '')))
+        .filter(Number.isFinite);
+      if (values.length === 0) return null;
+      return values.reduce((best, value) => (Math.abs(value) > Math.abs(best) ? value : best), values[0]);
+    }
+
+    function shouldResolveLocally(action: string): boolean {
+      const lower = action.toLowerCase();
+      return (
+        /осмотр|огляд|обыск|искать|прислуш|отдох|передох|сплю|сон/.test(lower) ||
+        /золот|монет|деньг|богат|опыт|xp|уров|макс.*hp|макс.*здоров|здоров.*навсегда|хп.*навсегда|леч|исцел|здоров|hp|хп|жизн/.test(lower) ||
+        /сил|ловк|телос|вынос|интел|мудр|харизм|str|dex|con|int|wis|cha/i.test(action) ||
+        /меч|клин|посох|лук|арбалет|кольц|амулет|артефакт|предмет|зель|брон|доспех|щит|ключ/.test(lower) ||
+        /оказыва|телепорт|перенош|появля|попада|вхожу|иду в|лечу в|город|таверн|трактир|рынок|дом|замок|лес|пещер|храм|поверхност/.test(lower) ||
+        /убираю враг|исчезают враг|враги исчез|побеждаю враг|уничтожаю враг/.test(lower)
+      );
+    }
+
+    function localLocationFromAction(action: string, currentDanger: number): NonNullable<DMResponse['newLocation']> | null {
+      const lower = action.toLowerCase();
+      const moves = ['оказыва', 'телепорт', 'перенош', 'появля', 'попада', 'вхожу', 'иду в', 'лечу в'];
+      const wantsMove = moves.some((word) => lower.includes(word));
+      const hasPlace =
+        /город|таверн|трактир|рынок|ярмарк|дом|замок|лес|полян|пещер|храм|библиотек|поверхност|дворец|остров|бездн|ад|рай|корабл/.test(lower);
+      if (!wantsMove && !hasPlace) return null;
+
+      const isTavern = /таверн|трактир/.test(lower);
+      const isHome = /дом|дворец/.test(lower);
+      const isTown = /город|рынок|ярмарк/.test(lower);
+      const isSurface = /поверхност|полян|луг|сад/.test(lower);
+      const isWild = /лес|остров|пустын|горы|болот/.test(lower);
+      const isCave = /пещер|подзем|грот/.test(lower);
+      const isLibrary = /библиотек|архив/.test(lower);
+      const isShrine = /храм|святилищ|церк/.test(lower);
+      const isHellish = /бездн|ад|преиспод|демон/.test(lower);
+
+      const type = isTavern || isHome
+        ? 'building_interior'
+        : isTown
+          ? 'town'
+          : isCave
+            ? 'cave'
+            : isLibrary
+              ? 'library'
+              : isShrine
+                ? 'shrine'
+                : isHellish
+                  ? 'boss_lair'
+                  : isWild || isSurface
+                    ? 'wilderness'
+                    : 'other';
+      const isSafeZone = isTown || isTavern || isHome || isSurface;
+      const dangerLevel = isSafeZone ? 1 : isHellish ? Math.max(10, currentDanger) : currentDanger;
+      const name = isTavern
+        ? 'Таверна внезапного поворота'
+        : isTown
+          ? 'Город, возникший из желания'
+          : isHome
+            ? 'Тёплый дом вне дороги'
+            : isSurface
+              ? 'Поверхность под открытым небом'
+              : isHellish
+                ? 'Предел невозможной бездны'
+                : 'Место, которое ты выдумал';
+
+      return {
+        name,
+        type,
+        description: `Реальность послушно складывается вокруг твоей заявки: ${action}. Это место существует теперь не как сон, а как часть маршрута.`,
+        biome: isSafeZone ? 'safe' : 'strange',
+        connectionLabel: 'рывок реальности',
+        isSafeZone,
+        dangerLevel,
+        depthDelta: 0,
+        enemies: [],
+        items: [],
+      };
+    }
+
+    function localFallbackResponse(action: string, ctx: GameContext, roll?: { total: number; success: boolean }): DMResponse {
+      const lower = action.toLowerCase();
+      const number = largestNumber(action);
+      const loc = ctx.locations[ctx.currentLocationId];
+      const isLook = /осмотр|огляд/.test(lower);
+      const isSearch = /обыск|искать|поиск/.test(lower);
+      const isRest = /отдох|передох|сплю|сон/.test(lower);
+      const isListen = /прислуш|слуша/.test(lower);
+      const response: DMResponse = {
+        narrative: roll
+          ? roll.success
+            ? 'Кубик ложится в твою пользу, и мир уступает заявленному ходу.'
+            : 'Проверка выходит криво, но история не рушится: последствия принимают более странную форму.'
+          : isLook
+            ? `Ты внимательно осматриваешь ${loc?.name ?? 'место вокруг'}. Детали сцены становятся яснее, а путь остаётся открытым для следующего решения.`
+            : isSearch
+              ? 'Ты быстро обыскиваешь местность и находишь то, что можно сразу пустить в дело.'
+              : isRest
+                ? (loc?.isSafeZone ? 'Ты спокойно отдыхаешь в безопасном месте и приходишь в себя.' : 'Ты ловишь короткую передышку. Это не полный покой, но тело успевает восстановиться.')
+                : isListen
+                  ? 'Ты замираешь и прислушиваешься: мир отвечает шорохами, голосами и мелкими подсказками.'
+                  : 'Реальность слышит твою заявку и без задержки вписывает её в мир.',
+        narrationOnly: true,
+        worldFlags: { [`локальная_импровизация_${Date.now()}`]: action.slice(0, 120) },
+      };
+
+      if (isLook) {
+        response.locationLore = `Осмотрено: ${loc?.description ?? action}`;
+        response.suggestedActions = ['Обыскать место', 'Проверить выходы', 'Прислушаться'];
       }
+      if (isListen) {
+        response.locationLore = `Ты запомнил звуки этого места: ${action}`;
+        response.suggestedActions = loc?.connections.length
+          ? loc.connections.slice(0, 3).map((cn) => `Пойти ${cn.label}`)
+          : ['Описать новый путь', 'Осмотреться внимательнее'];
+      }
+      if (isRest) {
+        response.hpChange = loc?.isSafeZone ? ctx.character.maxHp : Math.max(1, Math.ceil(ctx.character.maxHp * 0.35));
+        if (ctx.character.statusEffects.length && loc?.isSafeZone) {
+          response.statusEffects = { add: [], remove: ctx.character.statusEffects };
+        }
+      }
+      if (isSearch) {
+        if (Math.random() < 0.55) {
+          response.goldChange = number && number > 0 ? number : Math.floor(4 + Math.random() * 14);
+        } else {
+          response.itemFound = {
+            name: 'Находка из-под пыли',
+            type: 'misc',
+            rarity: 'common',
+            value: number && number > 0 ? number : 15,
+            weight: 1,
+            description: `Найдено после обыска: ${action}`,
+            icon: '✦',
+          };
+        }
+      }
+
+      if (/золот|монет|деньг|богат/.test(lower)) response.goldChange = number ?? 1000;
+      if (/опыт|xp|уров/.test(lower)) response.xpGained = Math.max(0, number ?? 300);
+      if (/макс.*hp|макс.*здоров|здоров.*навсегда|хп.*навсегда/.test(lower)) {
+        response.maxHpChange = Math.max(1, number ?? 10);
+        response.hpChange = response.maxHpChange;
+      } else if (/леч|исцел|здоров|hp|хп|жизн/.test(lower)) {
+        response.hpChange = Math.max(1, number ?? ctx.character.maxHp);
+      }
+
+      const statMap: { key: keyof typeof ctx.character.stats; words: RegExp }[] = [
+        { key: 'str', words: /сил|str/i },
+        { key: 'dex', words: /ловк|dex/i },
+        { key: 'con', words: /телос|вынос|con/i },
+        { key: 'int', words: /интел|int/i },
+        { key: 'wis', words: /мудр|wis/i },
+        { key: 'cha', words: /харизм|cha/i },
+      ];
+      const stat = statMap.find((entry) => entry.words.test(action));
+      if (stat && number) {
+        response.statChanges = [{ stat: stat.key, delta: number, reason: 'воля игрока меняет героя' }];
+      }
+
+      if (/меч|клин|посох|лук|арбалет|кольц|амулет|артефакт|предмет|зель|брон|доспех|щит|ключ/.test(lower)) {
+        response.itemFound = {
+          name: /меч|клин/.test(lower)
+            ? 'Меч, появившийся по слову'
+            : /щит/.test(lower)
+              ? 'Щит, вырванный из вероятности'
+              : /брон|доспех/.test(lower)
+                ? 'Доспех, собранный желанием'
+                : 'Предмет, выдуманный тобой',
+          type: /меч|клин|посох|лук|арбалет/.test(lower) ? 'weapon' : /щит/.test(lower) ? 'shield' : /брон|доспех/.test(lower) ? 'armor' : /зель/.test(lower) ? 'potion' : 'artifact',
+          rarity: 'legendary',
+          value: Math.max(1, number ?? 1000),
+          weight: 1,
+          description: `Он возник потому, что ты так решил: ${action}`,
+          icon: '✦',
+        };
+      }
+
+      const localLocation = localLocationFromAction(action, ctx.depth);
+      if (localLocation) {
+        response.newLocation = localLocation;
+        response.narrationOnly = false;
+      }
+      if (/убираю враг|исчезают враг|враги исчез|побеждаю враг|уничтожаю враг/.test(lower)) {
+        response.clearLocationEnemies = true;
+      }
+      return response;
+    }
+
+    function handleAiError(err: unknown): void {
+      // Always log the real cause (status + full Groq body) for diagnosis.
+      if (err instanceof GroqError) {
+        console.error(`[DM] Groq error (code: ${err.code}): ${err.message}`, err.body ? `\nТело ответа Groq:\n${err.body}` : '');
+      } else {
+        console.error('[DM] request failed:', err);
+      }
+
+      if (err instanceof GroqError) {
+        if (err.code === 'no-key') {
+          get().addNarrative('⚠ Ключ Groq не задан. Открой Настройки и введи ключ.', 'system');
+          return;
+        }
+        if (err.code === 'model') {
+          get().addNarrative('⚠ Выбранная модель ИИ недоступна (decommissioned). Открой Настройки → выбери другую модель. Подробности в консоли браузера (F12).', 'system');
+          return;
+        }
+        if (err.code === 'rate-limit') {
+          get().addNarrative('⚠ Дневной лимит Groq исчерпан. Включаю локальную импровизацию для этого хода; для длинной игры лучше выбрать llama-3.1-8b-instant в настройках.', 'system');
+          return;
+        }
+        get().addNarrative(`⚠ Мастер не отвечает (код: ${err.code}). Подробности в консоли браузера (F12).`, 'system');
+        return;
+      }
+      get().addNarrative('⚠ Мастер не отвечает (неизвестная ошибка). Подробности в консоли браузера (F12).', 'system');
     }
 
     /** Apply a DMResponse to game state in the Phase-7 order. */
@@ -296,6 +571,13 @@ export const useGameStore = create<GameStore>()(
 
       // 2. Permanent stat changes BEFORE hp (CON can shift maxHp).
       if (response.statChanges?.length) a.applyStatChanges(response.statChanges);
+      if (response.maxHpChange) {
+        const hp = sanitizeStoryNumber(response.maxHpChange, 0, 1_000_000);
+        if (hp !== 0) {
+          a.updateMaxHp(hp);
+          a.addNarrative(hp > 0 ? `✦ Максимум HP +${hp}` : `✦ Максимум HP ${hp}`, 'system');
+        }
+      }
 
       // 3. HP and status effects.
       if (response.hpChange) {
@@ -376,8 +658,9 @@ export const useGameStore = create<GameStore>()(
 
       // 8. Combat (ambush enemies join the current location first).
       if (response.combatStart?.ambushEnemies?.length) {
-        const depth = get().depth;
-        const ambush = response.combatStart.ambushEnemies.map((e) => clampGeneratedEnemy(e, depth));
+        const loc = currentLocation();
+        const danger = locationDanger(loc, get().depth);
+        const ambush = response.combatStart.ambushEnemies.map((e) => clampGeneratedEnemy(e, danger));
         set((st) => {
           const loc = st.currentLocationId ? st.locations[st.currentLocationId] : null;
           if (loc) loc.enemiesPresent.push(...ambush);
@@ -461,7 +744,7 @@ export const useGameStore = create<GameStore>()(
           const location = createStartingLocation();
           state.locations = { [location.id]: location };
           state.currentLocationId = location.id;
-          state.depth = 1;
+          state.depth = locationDanger(location, 1);
           state.narrativeLog.push({ id: createId(), type: 'narration', text: getIntroNarrative(character.class), timestamp: Date.now() });
           state.narrativeLog.push({ id: createId(), type: 'narration', text: location.description, timestamp: Date.now() });
         });
@@ -482,6 +765,22 @@ export const useGameStore = create<GameStore>()(
       clearNarrative: () =>
         set((state) => {
           state.narrativeLog = [];
+        }),
+
+      updateMaxHp: (delta) =>
+        set((state) => {
+          const { character } = state;
+          if (!character) return;
+          const nextMax = Math.max(1, character.maxHp + delta);
+          const actual = nextMax - character.maxHp;
+          character.maxHp = nextMax;
+          character.hp = actual >= 0
+            ? Math.min(character.maxHp, character.hp + actual)
+            : Math.min(character.hp, character.maxHp);
+          if (character.hp <= 0) {
+            character.hp = 0;
+            state.screen = 'game-over';
+          }
         }),
 
       // Apply an HP delta, clamp to [0, maxHp], trigger game over at 0.
@@ -541,6 +840,7 @@ export const useGameStore = create<GameStore>()(
           state.character.gold = Math.max(0, state.character.gold + amount);
           if (amount > 0) state.gameStats.goldFound += amount;
           if (state.character.gold >= 500) unlockAchievement(state, 'gold_hoarder');
+          if (amount >= 1000) maybeUnlockDynamicAchievement(state, 'wealth', `+${amount} золота`, `wealth_${state.gameStats.turnsPlayed}_${amount}`);
         }),
 
       // Stack consumables (potions) by name; never stack gear (hidden stat diffs).
@@ -554,6 +854,9 @@ export const useGameStore = create<GameStore>()(
             }
           }
           state.inventory.push({ ...item, quantity: item.quantity ?? 1 });
+          if (item.rarity === 'legendary' || item.value >= 1000) {
+            maybeUnlockDynamicAchievement(state, 'item', item.name, `item_${state.gameStats.turnsPlayed}_${item.name}`);
+          }
         }),
 
       // Decrement a stack; only splice the slot once the last unit is gone.
@@ -650,7 +953,9 @@ export const useGameStore = create<GameStore>()(
         set((state) => {
           // Persist combat damage to the location before discarding the fight
           // (covers flee / non-victory exits).
+          const escaped = state.combat?.enemies.some((enemy) => enemy.hp > 0) ?? false;
           syncCombatEnemiesIntoLocation(state);
+          if (escaped) maybeUnlockDynamicAchievement(state, 'escape', 'ты вышел из боя, оставив врагов позади', `escape_${state.gameStats.turnsPlayed}`);
           state.combat = null;
         }),
 
@@ -697,6 +1002,13 @@ export const useGameStore = create<GameStore>()(
         messageHistory.clear();
         set((state) => {
           Object.assign(state, loaded);
+          state.screen = 'game';
+          state.isLoading = false;
+          state.pendingRoll = null;
+          state.lastSuggestedActions = [];
+          state.pendingAchievementToasts = [];
+          state.dynamicAchievements = loaded.dynamicAchievements ?? [];
+          state.decisionLog = loaded.decisionLog ?? [];
         });
       },
 
@@ -728,13 +1040,16 @@ export const useGameStore = create<GameStore>()(
           if (!c) return;
           for (const change of changes) {
             const stat = change.stat;
-            const delta = clamp(change.delta, -2, 2);
+            const delta = sanitizeStoryNumber(change.delta, 0, 999);
             const old = c.stats[stat];
-            const next = clamp(old + delta, 1, 24);
+            const next = clamp(old + delta, 1, 999);
             const actual = next - old;
             if (actual === 0) continue;
             c.stats[stat] = next;
             unlockAchievement(state, actual < 0 ? 'cursed' : 'blessed');
+            if (Math.abs(actual) >= 5) {
+              maybeUnlockDynamicAchievement(state, 'power', `${STAT_LABELS_RU[stat]} ${actual > 0 ? '+' : ''}${actual}`, `power_${state.gameStats.turnsPlayed}_${stat}`);
+            }
             const oldMod = abilityModifier(old);
             const newMod = abilityModifier(next);
             c.modifiers[stat] = newMod;
@@ -849,10 +1164,6 @@ export const useGameStore = create<GameStore>()(
         const s = get();
         const loc = s.currentLocationId ? s.locations[s.currentLocationId] : null;
         if (!loc) return { blocked: false };
-        const survivor = loc.enemiesPresent.find((e) => e.hp > 0 && e.mustFight);
-        if (survivor && !s.resolvedCombatAt[loc.id]) {
-          return { blocked: true, survivor };
-        }
         set((state) => {
           const l = state.currentLocationId ? state.locations[state.currentLocationId] : null;
           if (l) l.enemiesPresent = l.enemiesPresent.filter((e) => e.hp <= 0);
@@ -866,10 +1177,16 @@ export const useGameStore = create<GameStore>()(
         set((state) => {
           const current = state.currentLocationId ? state.locations[state.currentLocationId] : null;
           const existing = findExistingLocationByName(state.locations, spec.name);
+          const previousDanger = locationDanger(current, state.depth);
+          const nextDanger = dangerLevelForLocation(spec.type, spec.isSafeZone, previousDanger, spec.depthDelta, spec.dangerLevel);
 
           if (existing && current && existing.id === current.id) {
             // AI re-described the CURRENT place as "new" — just refresh the description.
             current.description = spec.description || current.description;
+            current.type = spec.type || current.type;
+            current.isSafeZone = spec.isSafeZone ?? current.isSafeZone;
+            current.dangerLevel = nextDanger;
+            state.depth = nextDanger;
             resultId = current.id;
             return;
           }
@@ -881,13 +1198,15 @@ export const useGameStore = create<GameStore>()(
               existing.connections.push({ toLocationId: current.id, label: 'назад' });
             }
             state.currentLocationId = existing.id;
-            state.depth = clamp(state.depth + (spec.depthDelta ?? 0), 1, 20);
+            existing.dangerLevel = locationDanger(existing, nextDanger);
+            state.depth = existing.dangerLevel;
+            maybeUnlockDynamicAchievement(state, 'travel', existing.name, `travel_${existing.id}`);
             if (state.depth >= 10) unlockAchievement(state, 'deep_diver');
             resultId = existing.id;
             return;
           }
 
-          const enemies = (spec.enemies ?? []).map((e) => clampGeneratedEnemy(e, state.depth));
+          const enemies = (spec.enemies ?? []).map((e) => clampGeneratedEnemy(e, nextDanger));
           const items = (spec.items ?? []).map((i) => clampGeneratedItem(i, true));
           const newLoc: Location = {
             id,
@@ -895,6 +1214,7 @@ export const useGameStore = create<GameStore>()(
             type: spec.type,
             description: spec.description,
             biome: spec.biome,
+            dangerLevel: nextDanger,
             enemiesPresent: enemies,
             itemsPresent: items,
             npcIds: [],
@@ -909,7 +1229,8 @@ export const useGameStore = create<GameStore>()(
           }
           state.locations[id] = newLoc;
           state.currentLocationId = id;
-          state.depth = clamp(state.depth + (spec.depthDelta ?? 0), 1, 20);
+          state.depth = nextDanger;
+          maybeUnlockDynamicAchievement(state, 'travel', newLoc.name, `travel_${id}`);
           if (state.depth >= 10) unlockAchievement(state, 'deep_diver');
           resultId = id;
         });
@@ -928,6 +1249,8 @@ export const useGameStore = create<GameStore>()(
             target.connections.push({ toLocationId: current.id, label: 'назад' });
           }
           state.currentLocationId = target.id;
+          target.dangerLevel = locationDanger(target, state.depth);
+          state.depth = target.dangerLevel;
         });
         return true;
       },
@@ -935,7 +1258,10 @@ export const useGameStore = create<GameStore>()(
       updateCurrentLocation: (update) =>
         set((state) => {
           if (state.currentLocationId && state.locations[state.currentLocationId]) {
-            Object.assign(state.locations[state.currentLocationId], update);
+            const loc = state.locations[state.currentLocationId];
+            Object.assign(loc, update);
+            loc.dangerLevel = dangerLevelForLocation(loc.type, loc.isSafeZone, state.depth, 0, loc.dangerLevel);
+            state.depth = loc.dangerLevel;
           }
         }),
 
@@ -1109,10 +1435,12 @@ export const useGameStore = create<GameStore>()(
         if (s.isLoading || s.combat?.active || s.pendingRoll) return;
         if (!trimmed || !s.character || !s.currentLocationId) return;
         s.setSuggestedActions([]); // clear stale chips as a new turn begins
+        const initialCtx = buildContext();
+        const resolveLocally = !!initialCtx && shouldResolveLocally(trimmed);
 
-        if (!hasApiKey()) {
+        if (!resolveLocally && !hasApiKey()) {
           s.addNarrative(`> ${trimmed}`, 'action');
-          s.addNarrative('⚠ Укажи ключ Groq в Настройках, чтобы Мастер Подземелий ожил.', 'system');
+          s.addNarrative('⚠ Укажи ключ Groq в Настройках, чтобы Мастер Подземелий ожил. Простые действия всё равно работают локально.', 'system');
           return;
         }
 
@@ -1122,8 +1450,16 @@ export const useGameStore = create<GameStore>()(
         if (tick.defeated) return; // game-over already set; don't take the turn.
 
         s.addNarrative(`> ${trimmed}`, 'action');
-        s.setLoading(true);
         s.incrementTurns();
+        if (initialCtx && resolveLocally) {
+          const response = localFallbackResponse(trimmed, initialCtx);
+          messageHistory.addUserAction(trimmed);
+          messageHistory.addDMResponse(response);
+          await applyDMResponse(response, trimmed);
+          return;
+        }
+
+        s.setLoading(true);
         try {
           const ctx = buildContext();
           if (!ctx) return;
@@ -1134,6 +1470,15 @@ export const useGameStore = create<GameStore>()(
           maybeSummarize();
         } catch (err) {
           handleAiError(err);
+          if (err instanceof GroqError && err.code === 'rate-limit') {
+            const ctx = buildContext();
+            if (ctx) {
+              const response = localFallbackResponse(trimmed, ctx);
+              messageHistory.addUserAction(trimmed);
+              messageHistory.addDMResponse(response);
+              await applyDMResponse(response, trimmed);
+            }
+          }
         } finally {
           get().setLoading(false);
         }
@@ -1183,6 +1528,12 @@ export const useGameStore = create<GameStore>()(
           await applyDMResponse(response);
         } catch (err) {
           handleAiError(err);
+          if (err instanceof GroqError && err.code === 'rate-limit') {
+            const response = localFallbackResponse(pending.description, ctx, { total, success });
+            messageHistory.addUserAction(`[ROLL: ${total} vs DC ${pending.dc} — ${success ? 'успех' : 'провал'}]`);
+            messageHistory.addDMResponse(response);
+            await applyDMResponse(response);
+          }
         } finally {
           get().setLoading(false);
         }

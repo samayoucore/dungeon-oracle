@@ -26,9 +26,10 @@ export function useToasts() {
 /** Stacked toast notifications, bottom-right — plus the achievement queue. */
 export default function Toast({ toasts }: { toasts: ToastItem[] }) {
   const pending = useGameStore((s) => s.pendingAchievementToasts);
+  const dynamicAchievements = useGameStore((s) => s.dynamicAchievements);
   const consume = useGameStore((s) => s.consumeAchievementToast);
   const currentId = pending[0];
-  const achievement = currentId ? ACHIEVEMENT_BY_ID[currentId] : undefined;
+  const achievement = currentId ? ACHIEVEMENT_BY_ID[currentId] ?? dynamicAchievements.find((item) => item.id === currentId) : undefined;
 
   useEffect(() => {
     if (!currentId) return;

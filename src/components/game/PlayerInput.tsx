@@ -29,7 +29,7 @@ export default function PlayerInput({ isTyping }: PlayerInputProps) {
   const suggestions = useGameStore((s) => s.lastSuggestedActions);
   const submitPlayerAction = useGameStore((s) => s.submitPlayerAction);
 
-  const locked = isTyping || isLoading || inCombat || !!pendingRoll;
+  const locked = isLoading || inCombat || !!pendingRoll;
 
   const submit = (raw: string) => {
     const input = raw.trim();
@@ -66,10 +66,12 @@ export default function PlayerInput({ isTyping }: PlayerInputProps) {
     ? 'Идёт бой…'
     : isLoading
       ? 'Мастер Подземелий размышляет…'
-      : 'Что ты делаешь?';
+      : isTyping
+        ? 'Можно продолжать действие…'
+        : 'Что угодно приходит в голову?';
 
   return (
-    <div className="flex shrink-0 flex-col gap-2 border-t border-surface-elevated p-3">
+    <div className="flex shrink-0 flex-col gap-2 border-t border-white/10 bg-dungeon/35 p-3">
       {isLoading && (
         <div className="flex items-center gap-2 text-xs text-gold">
           <Loader2 className="h-3.5 w-3.5 animate-spin" /> Мастер Подземелий ведёт повествование…
@@ -83,7 +85,7 @@ export default function PlayerInput({ isTyping }: PlayerInputProps) {
               type="button"
               onClick={() => submit(suggestion)}
               disabled={locked}
-              className="rounded-full border border-gold/20 bg-surface px-3 py-1 text-sm text-parchment transition-colors hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
+              className="rounded-full border border-gold/25 bg-gold/10 px-3 py-1 text-sm text-parchment transition-colors hover:border-gold disabled:cursor-not-allowed disabled:opacity-40"
             >
               {suggestion}
             </button>
@@ -98,7 +100,7 @@ export default function PlayerInput({ isTyping }: PlayerInputProps) {
           onKeyDown={handleKeyDown}
           disabled={locked}
           placeholder={placeholder}
-          className="flex-1 rounded-md border border-surface-elevated bg-dungeon px-3 py-2 text-sm text-parchment placeholder:text-muted/60 focus:border-gold focus:outline-none disabled:opacity-60"
+          className="flex-1 rounded-md border border-white/15 bg-dungeon/80 px-3 py-2 text-sm text-parchment placeholder:text-muted/60 focus:border-gold focus:outline-none disabled:opacity-60"
         />
         <button
           type="button"
@@ -117,7 +119,7 @@ export default function PlayerInput({ isTyping }: PlayerInputProps) {
             type="button"
             onClick={() => submit(action.command)}
             disabled={locked}
-            className="rounded-md border border-surface-elevated px-2 py-1 text-xs text-muted transition-colors hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:opacity-40"
+          className="rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-muted transition-colors hover:border-gold hover:text-gold disabled:cursor-not-allowed disabled:opacity-40"
           >
             {action.label}
           </button>

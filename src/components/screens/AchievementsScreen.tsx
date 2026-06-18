@@ -5,14 +5,20 @@ import {
   Award,
   Coins,
   Drama,
+  Gem,
   HeartCrack,
   Hourglass,
+  Map,
+  MapPin,
   ScrollText,
+  Shield,
   Skull,
   Sparkles,
   Sword,
   Users,
+  Wind,
   X,
+  Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useGameStore } from '../../store/gameStore';
@@ -27,17 +33,24 @@ const ICONS: Record<string, LucideIcon> = {
   HeartCrack,
   Coins,
   Drama,
+  Gem,
   ArrowDownToLine,
+  Map,
+  MapPin,
   ScrollText,
+  Shield,
   Users,
   Skull,
   Sparkles,
   Hourglass,
+  Wind,
+  Zap,
 };
 
 /** Modal trophy gallery. Locked achievements are dimmed with hidden details. */
 export default function AchievementsScreen({ onClose }: AchievementsScreenProps) {
   const unlocked = useGameStore((s) => s.unlockedAchievements);
+  const dynamicAchievements = useGameStore((s) => s.dynamicAchievements);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -60,7 +73,7 @@ export default function AchievementsScreen({ onClose }: AchievementsScreenProps)
       >
         <div className="flex shrink-0 items-center justify-between border-b border-surface-elevated px-5 py-3">
           <h2 className="font-serif text-xl text-gold">
-            Достижения <span className="text-sm text-muted">({unlockedCount}/{ACHIEVEMENTS.length})</span>
+            Достижения <span className="text-sm text-muted">({unlockedCount}/{ACHIEVEMENTS.length} + {dynamicAchievements.length})</span>
           </h2>
           <button type="button" onClick={onClose} aria-label="Закрыть" className="text-muted transition-colors hover:text-gold">
             <X className="h-5 w-5" />
@@ -68,6 +81,22 @@ export default function AchievementsScreen({ onClose }: AchievementsScreenProps)
         </div>
 
         <div className="grid min-h-0 grid-cols-1 gap-2 overflow-y-auto p-4 sm:grid-cols-2">
+          {dynamicAchievements.length > 0 && (
+            <div className="col-span-full mb-1 text-xs font-semibold uppercase tracking-wider text-muted">Случайные подвиги этого забега</div>
+          )}
+          {dynamicAchievements.map((a) => {
+            const Icon = ICONS[a.icon] ?? Award;
+            return (
+              <div key={a.id} className="flex items-start gap-3 rounded-md border border-gold/40 bg-gold/10 p-3 transition-colors">
+                <Icon className="h-6 w-6 shrink-0 text-gold" />
+                <div className="min-w-0">
+                  <div className="font-serif text-sm text-parchment">{a.title}</div>
+                  <div className="text-xs text-muted">{a.description}</div>
+                </div>
+              </div>
+            );
+          })}
+          <div className="col-span-full mt-2 text-xs font-semibold uppercase tracking-wider text-muted">Постоянные трофеи</div>
           {ACHIEVEMENTS.map((a) => {
             const isUnlocked = unlocked.includes(a.id);
             const Icon = ICONS[a.icon] ?? Award;

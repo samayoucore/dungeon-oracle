@@ -7,13 +7,13 @@
 const KEY_STORAGE = 'dm_groq_api_key';
 const MODEL_STORAGE = 'dm_groq_model';
 
-/** Default Groq model — strong instruction-following + JSON mode support. */
-export const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+/** Default Groq model — cheaper daily-token footprint for long play sessions. */
+export const DEFAULT_MODEL = 'llama-3.1-8b-instant';
 
 /** A few known-good Groq models offered in the Settings dropdown. */
 export const AVAILABLE_MODELS = [
-  'llama-3.3-70b-versatile',
   'llama-3.1-8b-instant',
+  'llama-3.3-70b-versatile',
   'openai/gpt-oss-120b',
   'openai/gpt-oss-20b',
 ] as const;
@@ -43,7 +43,12 @@ export function hasApiKey(): boolean {
 }
 
 export function getModel(): string {
-  return storage()?.getItem(MODEL_STORAGE)?.trim() || DEFAULT_MODEL;
+  const stored = storage()?.getItem(MODEL_STORAGE)?.trim();
+  // Only honour a stored model that is still in the known-good list. This
+  // self-heals stale/decommissioned values (e.g. an old "llama-3.1-70b-versatile"
+  // left in localStorage by a previous build) that would otherwise 400 on Groq.
+  if (stored && (AVAILABLE_MODELS as readonly string[]).includes(stored)) return stored;
+  return DEFAULT_MODEL;
 }
 
 export function setModel(model: string): void {
