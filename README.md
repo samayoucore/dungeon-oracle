@@ -2,155 +2,98 @@
 
 # ⚔️ Dungeon Oracle
 
-### A browser RPG where the AI Dungeon Master doesn't just describe the world — it runs it
-
-[![React](https://img.shields.io/badge/React-18-61DAFB?style=flat-square&logo=react&logoColor=white)](https://react.dev)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.4-3178C6?style=flat-square&logo=typescript&logoColor=white)](https://typescriptlang.org)
-[![Vite](https://img.shields.io/badge/Vite-5.2-646CFF?style=flat-square&logo=vite&logoColor=white)](https://vitejs.dev)
-[![Tailwind CSS](https://img.shields.io/badge/Tailwind-3.4-06B6D4?style=flat-square&logo=tailwindcss&logoColor=white)](https://tailwindcss.com)
-[![Zustand](https://img.shields.io/badge/Zustand-4.5-FF6B35?style=flat-square)](https://zustand-demo.pmnd.rs)
-[![Groq](https://img.shields.io/badge/Groq-Llama_3.3_70B-F55036?style=flat-square)](https://groq.com)
-
-<br/>
-
-*There is no pre-built dungeon. There is no script.<br/>The AI Dungeon Master invents every room, every face, and every consequence as you go — while the dice stay honest.*
+### Браузерная RPG, в которой ИИ-Мастер не просто описывает мир — он управляет им
 
 </div>
 
 ---
 
-## ✨ What this actually does
+## Русская версия
 
-Most "AI RPG" demos are a chat window with a fantasy system prompt. Dungeon Oracle goes further: the AI's response is a structured object, and the frontend treats every field as a real game mechanic — not flavor text layered on top of a static game.
+### О проекте
 
-- **The AI controls the world, not just the words.** Every player action can move you to a new location, introduce a named NPC, start a quest, change your gold, scar you with a permanent stat change, or poison you for the next several turns — and all of it is reflected immediately in your character sheet, inventory, and map.
-- **No pre-generated dungeon.** There's no fixed layout waiting to be unlocked. The AI invents each location's name and description as the story reaches it, and remembers it well enough to send you back to the *same* tavern, not a copy of it.
-- **Dice still decide fights.** The Dungeon Master narrates the encounter and decides when it starts — but initiative, attack rolls, critical hits, and damage are resolved by deterministic code. No amount of clever phrasing lets the AI simply declare a fight won.
-- **Boss fights can't be talked away.** Key enemies are flagged as must-fight. If you try to narrate your way past one without actually fighting, the story twists on you — the clever plan fails at the last second, and real combat begins anyway.
-- **The world remembers, within limits.** NPC relationships, world facts, shop inventories, and quest progress persist across the session via explicit IDs the AI is given — not vibes. A rolling story summary keeps long sessions coherent without the prompt growing forever.
-- **Generated content is sanity-checked.** Enemies and items the AI invents are clamped to sane ranges for the current depth, so a "CR 30 ancient dragon" can't show up two rooms into the game.
-- **Works with or without an API key.** No key configured → a template-based narrative engine still handles room descriptions and basic commands. Add a free Groq key → the full reactive Dungeon Master takes over.
+**Dungeon Oracle** — концептуальная браузерная RPG, вдохновлённая настольными ролевыми играми и классической механикой Dungeons & Dragons.
 
----
+В игре нет заранее подготовленного сюжета, фиксированной карты или набора прописанных диалогов. Мир формируется непосредственно во время прохождения: ИИ-Мастер создаёт локации, персонажей, события, задания и последствия, основываясь на действиях игрока и текущем состоянии игры.
 
-## 🎮 How to Play
+Игрок самостоятельно описывает свои действия в свободной форме, а система интерпретирует их и изменяет игровой мир. Можно исследовать помещения, разговаривать с персонажами, торговать, принимать решения, выполнять задания, находить предметы и вступать в сражения.
 
-1. **Create your hero** — pick a race, class, name, and distribute ability points via point-buy.
-2. **Say what you do, in your own words** — *"Осматриваю руны на стене"*, *"Иду на свет в конце коридора"*, *"Предлагаю торговцу свой кинжал в обмен на зелье"*. The Dungeon Master reacts to the literal thing you typed, not a multiple-choice menu.
-3. **Watch the world respond** — new locations appear on the map, NPCs remember you, quests pick up objectives, your inventory and gold update live.
-4. **Fight when it's time** — combat hands off to a proper turn-based D&D-style system: roll initiative, attack, dodge, use items, watch the dice.
-5. **Survive, descend, return** — go back to a safe location to rest and trade, then head deeper for tougher fights and better loot.
+### Что делает проект
 
-> **Tip:** add a free Groq API key in Settings to unlock the living Dungeon Master. Get one at [console.groq.com](https://console.groq.com) — no credit card required.
+Dungeon Oracle объединяет генеративный ИИ и традиционные игровые механики.
 
----
+ИИ отвечает за:
 
-## 🚀 Getting Started
+- создание новых локаций и их описаний;
+- генерацию NPC, их характеров, ролей и отношения к игроку;
+- формирование заданий и сюжетных событий;
+- изменение мира в зависимости от решений игрока;
+- создание предметов, наград, торговцев и противников;
+- продолжение истории с учётом предыдущих событий.
 
-```bash
-git clone https://github.com/your-username/dungeon-oracle.git
-cd dungeon-oracle
-npm install
-npm run dev
-```
+При этом основные игровые расчёты выполняются программным кодом. Броски кубиков, порядок ходов, попадания, критические удары, урон, здоровье и другие боевые механики не определяются ИИ и не могут быть изменены с помощью текста игрока.
 
-Open [http://localhost:5173](http://localhost:5173) and begin.
+Ответ ИИ обрабатывается не как обычное сообщение в чате, а как набор структурированных игровых команд. Они могут изменить здоровье персонажа, добавить предмет в инвентарь, открыть новую локацию, начать задание, создать NPC или запустить бой.
 
-The game is fully playable without an API key — a keyword-based fallback handles basic actions (`look`, `search`, `rest`, `inventory`). Add a Groq key in Settings for the complete AI-driven experience.
+Благодаря этому ИИ не просто рассказывает историю, а становится полноценной частью игровой системы.
 
----
+### Цель проекта
 
-## 🏗️ How It's Built
+Dungeon Oracle создаётся как portfolio pet-project, демонстрирующий:
 
-The project draws a hard line between two kinds of truth, and that line is the whole design:
+- интеграцию генеративного ИИ в полноценную игровую механику;
+- работу со структурированными ответами языковой модели;
+- разделение ответственности между ИИ и детерминированным кодом;
+- создание процедурно формируемого игрового мира;
+- разработку системы сохранения состояния, истории и контекста;
+- построение современной браузерной RPG на React и TypeScript;
+- проектирование сложного интерактивного интерфейса;
+- создание игрового опыта, в котором каждое прохождение развивается по-разному.
 
-| Decided by deterministic code | Decided by the AI Dungeon Master |
-|---|---|
-| Dice rolls, attack and damage math | Where you are, and what a place looks like |
-| Turn order and initiative | NPCs — their names, roles, attitudes |
-| Whether an attack hits or misses | Quests and their objectives |
-| HP loss during combat | Loot, gold, and XP outside combat |
-| Character creation math (HP/AC/modifiers) | Status effects from non-combat causes |
-| Leveling thresholds and stat growth | Shop inventories and prices |
-| Sanity limits on AI-generated content | The tone and voice of every response |
-
-Combat outcomes are never narrated into existence — they're computed. Everything else is the AI's to shape.
-
-### The response is a contract, not a chat message
-
-Every player action sends the full game state to Groq and gets back structured JSON, not prose. A trimmed example of what the model actually returns:
-
-```json
-{
-  "narrative": "Торговец прищуривается и кивает на ряд бутылочек на прилавке.",
-  "npcIntroduced": {
-    "id": "boris_merchant",
-    "name": "Борис",
-    "role": "торговец",
-    "shopInventory": [{ "name": "Зелье лечения", "value": 25 }]
-  },
-  "requiresRoll": { "stat": "cha", "dc": 12, "description": "Сбить цену" }
-}
-```
-
-The frontend walks every field in a fixed order — world state first, then HP and status effects, then inventory and gold, then NPCs and quests, then combat, then navigation — and applies each one as an actual store update. If a skill check is pending, the dice roll happens client-side and gets sent back to the AI as a follow-up message so it can narrate the consequence correctly.
-
-### A graph, not a grid
-
-Locations aren't tiles on a pre-built map — they're nodes the AI creates on demand, connected by labeled paths ("through a hidden crack in the wall," "down a spiral staircase"). When the AI tries to send you to "the merchant's stall" a second time, a name-similarity check resolves it to the *same* location and NPC instead of quietly duplicating them. A handful of guardrails keep this honest: enemy and item stats generated by the AI are clamped against the current depth, must-fight enemies can't be cleared without combat actually resolving, and a periodically-regenerated story summary keeps the model's context from growing without bound over a long session.
-
-### Two narrators, one voice
-
-Room *arrival* text can come from a fast, local template engine — hundreds of patterns and contextual variables that need no network call. Room *reaction* — anything the player actually does — goes to the AI. The seam between them is invisible in play, but it means the game never feels frozen waiting on a network request just to describe a doorway.
+Главная идея проекта — показать, что языковая модель может использоваться не только как генератор текста, но и как динамический управляющий слой внутри полноценного игрового приложения.
 
 ---
 
-## 🛠️ Tech Stack
+## English Version
 
-| Technology | Purpose |
-|---|---|
-| React 18 + TypeScript | UI layer, strict typing throughout |
-| Vite | Dev server and bundler |
-| Tailwind CSS | Dark fantasy utility-first styling |
-| Zustand + Immer | Single source of truth for all game state |
-| Framer Motion | Dice rolls, transitions, combat feedback |
-| Canvas API | Legacy dungeon-grid renderer (superseded by the location atlas) |
-| Groq API (Llama 3.3 70B) | The Dungeon Master itself |
-| Web Audio API | Every sound effect, generated — zero audio files |
-| localStorage | 3-slot saves, including AI conversation memory |
+### About the Project
 
----
+**Dungeon Oracle** is a conceptual browser-based RPG inspired by tabletop role-playing games and classic Dungeons & Dragons mechanics.
 
-## 📁 Project Structure
+The game has no pre-written storyline, fixed map, or predefined dialogue tree. The world is created during the playthrough: the AI Dungeon Master generates locations, characters, events, quests, and consequences based on the player’s actions and the current game state.
 
-```
-src/
-├── engine/                 # Pure TypeScript — no React, no store imports
-│   ├── combat/             # Dice, turn resolution, status effects, enemy AI
-│   ├── character/          # Creation math, leveling, class data
-│   ├── narrative/           # Template engine for fast, AI-free room intros
-│   ├── world/                # Content validation/clamping, NPC & location dedup, world bootstrap
-│   ├── ai/                  # Groq client, system prompt builder, message history
-│   └── audio/               # Procedural sound generation
-│
-├── store/                  # Zustand store — every mutation the AI or player can trigger
-├── components/
-│   ├── screens/             # Title, Character Creation, Game, Game Over, Level Up
-│   ├── game/                 # Narrative log, combat panel, location atlas, player input
-│   ├── character/            # Character sheet, inventory & equipment
-│   └── ui/                   # Typewriter text, toasts, dice roller
-├── types/                   # Every interface in one place
-└── utils/ · hooks/            # Save/load, autosave, sound toggle
-```
+Players describe their actions freely, while the system interprets those actions and updates the world accordingly. They can explore locations, interact with characters, trade, make decisions, complete quests, discover items, and enter combat.
 
----
+### What the Project Does
 
-## 🤔 Design Decisions Worth Knowing
+Dungeon Oracle combines generative AI with traditional game mechanics.
 
-A few things look like limitations at first glance but are deliberate:
+The AI is responsible for:
 
-Free-text input during an active fight goes to the combat system, not the AI — you choose Attack, Dodge, Flee, or an item from a fixed set of buttons. Letting the AI adjudicate combat flavor mid-fight would blur the one line the whole architecture depends on, so it's saved for outside combat instead.
+- creating new locations and descriptions;
+- generating NPCs, including their personalities, roles, and attitudes;
+- producing quests and story events;
+- changing the world in response to player decisions;
+- creating items, rewards, merchants, and enemies;
+- continuing the story while taking previous events into account.
 
-The AI can occasionally misname or slightly reword something it created earlier (a merchant becomes "the merchant" becomes "Boris the merchant"). The dedup logic catches close matches, but it's a similarity heuristic, not a guarantee — a few odd duplicate locations after very long sessions are a known, accepted edge case rather than a bug being chased.
+Core gameplay calculations are handled by deterministic code. Dice rolls, turn order, hit checks, critical strikes, damage, health, and other combat mechanics are not controlled by the AI and cannot be changed through persuasive player input.
 
----
+The AI response is processed not as a regular chat message, but as a set of structured game commands. These commands can modify the player’s health, add an item to the inventory, create a new location, start a quest, introduce an NPC, or trigger combat.
+
+This approach allows the AI to become an actual part of the game system rather than simply acting as a narrative text generator.
+
+### Project Goal
+
+Dungeon Oracle is being developed as a portfolio pet project that demonstrates:
+
+- the integration of generative AI into complete gameplay systems;
+- working with structured language-model responses;
+- separating AI-controlled logic from deterministic game code;
+- creating a procedurally generated game world;
+- managing persistent state, story history, and AI context;
+- building a modern browser RPG with React and TypeScript;
+- designing a complex interactive user interface;
+- creating a game experience in which every playthrough develops differently.
+
+The main goal of the project is to demonstrate that a language model can be used not only to generate text, but also as a dynamic control layer inside a complete interactive game.
